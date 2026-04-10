@@ -8,7 +8,10 @@ import type {
   ExportSnapshotSummary,
   NormalizedActivity,
   SnapshotCompare,
+  SnapshotCompareMetrics,
   SnapshotMetricDelta,
+  SnapshotMetricTrend,
+  SnapshotSportFilter,
 } from "@/types/export";
 import type {
   StravaActivity,
@@ -437,6 +440,12 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+const HR_INTENSITY_WEIGHT = 0.7;
+const POWER_INTENSITY_WEIGHT = 0.3;
+const DEFAULT_INTENSITY = 0.45;
+const FORMULA_VERSION = "v1";
+const SNAPSHOT_TREND_WINDOWS = [7, 14, 30] as const;
+
 function getZoneIntensity(activity: NormalizedActivity, type: "heartrate" | "power") {
   const zone = activity.zones.find((entry) => entry.type === type);
   if (!zone || zone.distributionBuckets.length === 0) {
@@ -463,7 +472,12 @@ function getActivityIntensity(activity: NormalizedActivity) {
   const powerIntensity = getZoneIntensity(activity, "power");
 
   if (heartRateIntensity !== null && powerIntensity !== null) {
-    return clamp(heartRateIntensity * 0.7 + powerIntensity * 0.3, 0, 1);
+    return clamp(
+      heartRateIntensity * HR_INTENSITY_WEIGHT +
+        powerIntensity * POWER_INTENSITY_WEIGHT,
+      0,
+      1,
+    );
   }
 
   if (heartRateIntensity !== null) {
@@ -482,7 +496,7 @@ function getActivityIntensity(activity: NormalizedActivity) {
     return clamp(activity.averageWatts / activity.maxWatts, 0, 1);
   }
 
-  return 0.45;
+  return DEFAULT_INTENSITY;
 }
 
 type TrainingMetrics = {
@@ -546,20 +560,145 @@ function buildMetricDelta(current: number, previous: number | null): SnapshotMet
   };
 }
 
-function buildSnapshotCompare(
+type SnapshotWithPayload = {
+  summary: ExportSnapshotSummary;
+  payload: StoredSnapshotPayload;
+};
+
+type SnapshotMetricHistoryPoint = {
+  createdAt: Date;
+  value: number;
+};
+
+function filterActivitiesBySport(
   activities: NormalizedActivity[],
-  previous: {
-    summary: ExportSnapshotSummary;
-    payload: StoredSnapshotPayload;
-  } | null,
-): SnapshotCompare {
-  const currentMetrics = calculateTrainingMetrics(activities);
-  const previousMetrics = previous
-    ? calculateTrainingMetrics(previous.payload.activities)
-    : null;
+  sportFilter: SnapshotSportFilter,
+) {
+  if (sportFilter === "all") {
+    return activities;
+  }
+
+  return activities.filter((activity) => {
+    const normalizedType = activity.type.toLowerCase();
+    const normalizedClassification = activity.classification.toLowerCase();
+
+    if (sportFilter === "ride") {
+      return normalizedType.includes("ride");
+    }
+
+    if (sportFilter === "run") {
+      return normalizedType.includes("run");
+    }
+
+    return (
+      normalizedType.includes("workout") ||
+      normalizedType.includes("weighttraining") ||
+      normalizedClassification.includes("workout") ||
+      normalizedClassification.includes("strength") ||
+      normalizedClassification.includes("functional")
+    );
+  });
+}
+
+function average(values: number[]) {
+  if (values.length === 0) {
+    return null;
+  }
+
+  const sum = values.reduce((acc, value) => acc + value, 0);
+  return roundMetric(sum / values.length);
+}
+
+function buildMetricTrend(history: SnapshotMetricHistoryPoint[]): SnapshotMetricTrend {
+  const rollingAverage3 = average(history.slice(0, 3).map((point) => point.value));
+  const now = Date.now();
+  const dayMs = 24 * 60 * 60 * 1000;
+
+  const windows = SNAPSHOT_TREND_WINDOWS.map((days) => {
+    const currentWindowStart = now - days * dayMs;
+    const previousWindowStart = now - days * 2 * dayMs;
+
+    const currentValues = history
+      .filter((point) => point.createdAt.getTime() >= currentWindowStart)
+      .map((point) => point.value);
+    const previousValues = history
+      .filter((point) => {
+        const createdAt = point.createdAt.getTime();
+        return createdAt >= previousWindowStart && createdAt < currentWindowStart;
+      })
+      .map((point) => point.value);
+
+    const current = average(currentValues) ?? 0;
+    const previous = average(previousValues);
+    const delta = previous === null ? null : roundMetric(current - previous);
+    const deltaPercent =
+      previous === null || previous === 0
+        ? null
+        : roundMetric(((current - previous) / previous) * 100);
+
+    return {
+      days,
+      sampleSize: currentValues.length,
+      current,
+      previous,
+      delta,
+      deltaPercent,
+    };
+  });
+
+  return {
+    rollingAverage3,
+    windows,
+  };
+}
+
+function buildCompareMetrics(
+  activities: NormalizedActivity[],
+  previous: SnapshotWithPayload | null,
+  snapshotHistory: SnapshotWithPayload[],
+  sportFilter: SnapshotSportFilter,
+): SnapshotCompareMetrics {
+  const filteredCurrentActivities = filterActivitiesBySport(activities, sportFilter);
+  const filteredPreviousActivities = previous
+    ? filterActivitiesBySport(previous.payload.activities, sportFilter)
+    : [];
+
+  const currentMetrics = calculateTrainingMetrics(filteredCurrentActivities);
+  const previousMetrics =
+    filteredPreviousActivities.length > 0
+      ? calculateTrainingMetrics(filteredPreviousActivities)
+      : null;
+
+  const now = new Date();
+  const historyMetrics = [
+    {
+      createdAt: now,
+      metrics: currentMetrics,
+    },
+    ...snapshotHistory.map((snapshot) => ({
+      createdAt: new Date(snapshot.summary.createdAt),
+      metrics: calculateTrainingMetrics(
+        filterActivitiesBySport(snapshot.payload.activities, sportFilter),
+      ),
+    })),
+  ];
+
+  const loadHistory = historyMetrics.map((entry) => ({
+    createdAt: entry.createdAt,
+    value: entry.metrics.load,
+  }));
+  const intensityHistory = historyMetrics.map((entry) => ({
+    createdAt: entry.createdAt,
+    value: entry.metrics.intensity,
+  }));
+  const durationHistory = historyMetrics.map((entry) => ({
+    createdAt: entry.createdAt,
+    value: entry.metrics.durationSeconds,
+  }));
 
   return {
     previousSnapshot: previous?.summary ?? null,
+    sampleSize: filteredCurrentActivities.length,
     load: buildMetricDelta(currentMetrics.load, previousMetrics?.load ?? null),
     intensity: buildMetricDelta(
       currentMetrics.intensity,
@@ -569,6 +708,40 @@ function buildSnapshotCompare(
       currentMetrics.durationSeconds,
       previousMetrics?.durationSeconds ?? null,
     ),
+    trends: {
+      load: buildMetricTrend(loadHistory),
+      intensity: buildMetricTrend(intensityHistory),
+      durationSeconds: buildMetricTrend(durationHistory),
+    },
+  };
+}
+
+function buildSnapshotCompare(
+  activities: NormalizedActivity[],
+  previous: SnapshotWithPayload | null,
+  snapshotHistory: SnapshotWithPayload[],
+): SnapshotCompare {
+  return {
+    formula: {
+      version: FORMULA_VERSION,
+      hrWeight: HR_INTENSITY_WEIGHT,
+      powerWeight: POWER_INTENSITY_WEIGHT,
+      defaultIntensity: DEFAULT_INTENSITY,
+      fallbackOrder: [
+        "Zone-basiert (HR/Power)",
+        "Nur HR",
+        "Nur Power",
+        "Durchschnittspuls/180",
+        "Durchschnittsleistung/Maximalleistung",
+        "Fixer Default",
+      ],
+    },
+    bySport: {
+      all: buildCompareMetrics(activities, previous, snapshotHistory, "all"),
+      ride: buildCompareMetrics(activities, previous, snapshotHistory, "ride"),
+      run: buildCompareMetrics(activities, previous, snapshotHistory, "run"),
+      workout: buildCompareMetrics(activities, previous, snapshotHistory, "workout"),
+    },
   };
 }
 
@@ -643,36 +816,25 @@ function toSnapshotSummary(
   };
 }
 
-async function loadRecentSnapshots(limit = 6) {
+async function loadRecentSnapshotsWithPayload(limit = 40) {
   const snapshots = await prisma.exportSnapshot.findMany({
     orderBy: { createdAt: "desc" },
     take: limit,
   });
 
-  return snapshots
-    .map(toSnapshotSummary)
-    .filter((snapshot): snapshot is ExportSnapshotSummary => Boolean(snapshot));
-}
+  return snapshots.reduce<SnapshotWithPayload[]>((entries, snapshot) => {
+    const payload = parseStoredSnapshotPayload(snapshot);
+    const summary = toSnapshotSummary(snapshot);
+    if (!payload || !summary) {
+      return entries;
+    }
 
-async function loadLatestSnapshotForCompare() {
-  const snapshot = await prisma.exportSnapshot.findFirst({
-    orderBy: { createdAt: "desc" },
-  });
-  if (!snapshot) {
-    return null;
-  }
-
-  const payload = parseStoredSnapshotPayload(snapshot);
-  const summary = toSnapshotSummary(snapshot);
-
-  if (!payload || !summary) {
-    return null;
-  }
-
-  return {
-    summary,
-    payload,
-  };
+    entries.push({
+      summary,
+      payload,
+    });
+    return entries;
+  }, []);
 }
 
 async function saveExportSnapshot(payload: ExportPayload) {
@@ -733,9 +895,14 @@ export async function buildAndStoreExportPayload(
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
 ) {
-  const previousSnapshots = await loadRecentSnapshots();
-  const latestSnapshotForCompare = await loadLatestSnapshotForCompare();
-  const snapshotCompare = buildSnapshotCompare(activities, latestSnapshotForCompare);
+  const recentSnapshotsWithPayload = await loadRecentSnapshotsWithPayload();
+  const previousSnapshots = recentSnapshotsWithPayload.map((entry) => entry.summary).slice(0, 6);
+  const latestSnapshotForCompare = recentSnapshotsWithPayload[0] ?? null;
+  const snapshotCompare = buildSnapshotCompare(
+    activities,
+    latestSnapshotForCompare,
+    recentSnapshotsWithPayload,
+  );
   const payload = buildExportPayload(
     activities,
     days,
