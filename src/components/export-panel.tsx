@@ -36,6 +36,14 @@ function formatDuration(seconds: number) {
   return `${Math.round(seconds / 60)} min`;
 }
 
+function formatPercentage(value: number, total: number) {
+  if (total <= 0) {
+    return "0 %";
+  }
+
+  return `${Math.round((value / total) * 100)} %`;
+}
+
 function formatZoneDuration(seconds: number) {
   if (seconds < 60) {
     return `0:${String(seconds).padStart(2, "0")} min`;
@@ -139,6 +147,256 @@ function downloadFile(filename: string, content: string, mimeType: string) {
   URL.revokeObjectURL(url);
 }
 
+type InsightKpi = {
+  id: string;
+  label: string;
+  value: string;
+  detail: string;
+};
+
+type EnvironmentKind = "indoor" | "outdoor" | "unknown";
+
+function inferActivityEnvironment(activity: NormalizedActivity): EnvironmentKind {
+  const indoorTypes = new Set([
+    "virtualride",
+    "virtualrun",
+    "workout",
+    "weighttraining",
+    "yoga",
+    "crossfit",
+    "stairstepper",
+    "elliptical",
+    "rowing",
+    "inlineskate",
+  ]);
+  const outdoorTypes = new Set([
+    "ride",
+    "run",
+    "walk",
+    "hike",
+    "trailrun",
+    "swim",
+    "gravelride",
+    "ebikeride",
+    "mountainbikeride",
+    "nordicski",
+    "backcountryski",
+  ]);
+
+  const normalizedType = activity.type.toLowerCase();
+  const normalizedName = activity.name.toLowerCase();
+  const normalizedLabel = activity.analysisLabel.toLowerCase();
+
+  if (
+    normalizedType.includes("virtual") ||
+    normalizedLabel.includes("indoor") ||
+    normalizedName.includes("trainer") ||
+    normalizedName.includes("spinning")
+  ) {
+    return "indoor";
+  }
+
+  if (indoorTypes.has(normalizedType)) {
+    return "indoor";
+  }
+
+  if (activity.classification === "Indoor Cycling") {
+    return "indoor";
+  }
+
+  if (
+    outdoorTypes.has(normalizedType) ||
+    normalizedName.includes("outdoor") ||
+    activity.elevationGainMeters > 0
+  ) {
+    return "outdoor";
+  }
+
+  if (!activity.hasDistanceData) {
+    return "indoor";
+  }
+
+  return "unknown";
+}
+
+function resolveThreshold(
+  athleteZones: ExportPayload["athleteZones"],
+  activities: NormalizedActivity[],
+) {
+  const hrThresholdFromProfile = athleteZones?.heartRateZones[3]?.min ?? null;
+  if (hrThresholdFromProfile) {
+    let seconds = 0;
+
+    for (const activity of activities) {
+      const heartRateZone = activity.zones.find((zone) => zone.type === "heartrate");
+      if (!heartRateZone) {
+        continue;
+      }
+
+      heartRateZone.distributionBuckets.forEach((bucket) => {
+        if (bucket.max < 0 || bucket.min >= hrThresholdFromProfile) {
+          seconds += bucket.time;
+        }
+      });
+    }
+
+    return {
+      seconds,
+      sourceLabel: `Basis Profil-HR-Schwelle ab ${hrThresholdFromProfile} bpm`,
+    };
+  }
+
+  const powerThresholdFromProfile = athleteZones?.powerZones[3]?.min ?? null;
+  if (powerThresholdFromProfile) {
+    let seconds = 0;
+
+    for (const activity of activities) {
+      const powerZone = activity.zones.find((zone) => zone.type === "power");
+      if (!powerZone) {
+        continue;
+      }
+
+      powerZone.distributionBuckets.forEach((bucket) => {
+        if (bucket.max < 0 || bucket.min >= powerThresholdFromProfile) {
+          seconds += bucket.time;
+        }
+      });
+    }
+
+    return {
+      seconds,
+      sourceLabel: `Basis Profil-Power-Schwelle ab ${powerThresholdFromProfile} W`,
+    };
+  }
+
+  let hrFallbackSeconds = 0;
+  let powerFallbackSeconds = 0;
+
+  for (const activity of activities) {
+    const heartRateZone = activity.zones.find((zone) => zone.type === "heartrate");
+    if (heartRateZone) {
+      heartRateZone.distributionBuckets.forEach((bucket, index) => {
+        if (index >= 3) {
+          hrFallbackSeconds += bucket.time;
+        }
+      });
+    }
+
+    const powerZone = activity.zones.find((zone) => zone.type === "power");
+    if (powerZone) {
+      powerZone.distributionBuckets.forEach((bucket, index) => {
+        if (index >= 3) {
+          powerFallbackSeconds += bucket.time;
+        }
+      });
+    }
+  }
+
+  if (hrFallbackSeconds > 0) {
+    return {
+      seconds: hrFallbackSeconds,
+      sourceLabel: "Fallback auf HR Z4-5 (ohne Profil-Schwelle)",
+    };
+  }
+
+  return {
+    seconds: powerFallbackSeconds,
+    sourceLabel:
+      powerFallbackSeconds > 0
+        ? "Fallback auf Power Z4+ (ohne Profil-Schwelle)"
+        : "Keine Schwellenzeit im Export gefunden",
+  };
+}
+
+function buildInsightKpis(
+  activities: NormalizedActivity[],
+  athleteZones: ExportPayload["athleteZones"],
+): InsightKpi[] {
+  if (activities.length === 0) {
+    return [];
+  }
+
+  let totalHrZoneSeconds = 0;
+  let hrZone3To5Seconds = 0;
+  let indoorCount = 0;
+  let outdoorCount = 0;
+  let unknownCount = 0;
+  let sessionsWithoutDistance = 0;
+  let longestSession: NormalizedActivity | null = null;
+
+  for (const activity of activities) {
+    const heartRateZone = activity.zones.find((zone) => zone.type === "heartrate");
+    if (heartRateZone) {
+      heartRateZone.distributionBuckets.forEach((bucket, index) => {
+        totalHrZoneSeconds += bucket.time;
+        if (index >= 2 && index <= 4) {
+          hrZone3To5Seconds += bucket.time;
+        }
+      });
+    }
+
+    const environment = inferActivityEnvironment(activity);
+    if (environment === "indoor") {
+      indoorCount += 1;
+    } else if (environment === "outdoor") {
+      outdoorCount += 1;
+    } else {
+      unknownCount += 1;
+    }
+
+    if (!activity.hasDistanceData) {
+      sessionsWithoutDistance += 1;
+    }
+
+    if (!longestSession || activity.movingTimeSeconds > longestSession.movingTimeSeconds) {
+      longestSession = activity;
+    }
+  }
+
+  const threshold = resolveThreshold(athleteZones, activities);
+
+  const insights: InsightKpi[] = [
+    {
+      id: "z3-5-share",
+      label: "Anteil Z3-5",
+      value: formatPercentage(hrZone3To5Seconds, totalHrZoneSeconds),
+      detail: `${formatZoneDuration(hrZone3To5Seconds)} von ${formatZoneDuration(totalHrZoneSeconds)} HR-Zonenzeit`,
+    },
+    {
+      id: "threshold-minutes",
+      label: "Minuten > Schwelle",
+      value: formatZoneDuration(threshold.seconds),
+      detail: threshold.sourceLabel,
+    },
+    {
+      id: "indoor-vs-outdoor",
+      label: "Indoor vs Outdoor",
+      value: `${indoorCount} : ${outdoorCount}`,
+      detail:
+        unknownCount > 0
+          ? `${formatPercentage(indoorCount, activities.length)} Indoor-Anteil · ${unknownCount} unklar`
+          : `${formatPercentage(indoorCount, activities.length)} Indoor-Anteil`,
+    },
+    {
+      id: "without-distance",
+      label: "Sessions ohne Distanz",
+      value: String(sessionsWithoutDistance),
+      detail: `${formatPercentage(sessionsWithoutDistance, activities.length)} aller Sessions`,
+    },
+  ];
+
+  if (longestSession) {
+    insights.push({
+      id: "longest-session",
+      label: "Laengste Einheit",
+      value: formatDuration(longestSession.movingTimeSeconds),
+      detail: `${longestSession.name} · ${formatDate(longestSession.startDate)}`,
+    });
+  }
+
+  return insights;
+}
+
 function ScopeBadge({ requirement }: { requirement: ScopeRequirement }) {
   return (
     <span
@@ -202,6 +460,18 @@ function ZoneBox({
       </p>
       <p className="mt-2 text-sm leading-6 text-black/66">{summary ?? emptyLabel}</p>
     </div>
+  );
+}
+
+function InsightCard({ insight }: { insight: InsightKpi }) {
+  return (
+    <article className="rounded-2xl border border-[color:var(--accent)]/16 bg-[linear-gradient(155deg,rgba(252,76,2,0.12),rgba(252,76,2,0.03))] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-[color:var(--accent)]/80">
+        {insight.label}
+      </p>
+      <p className="mt-2 text-xl font-semibold text-black/82">{insight.value}</p>
+      <p className="mt-2 text-xs leading-5 text-black/62">{insight.detail}</p>
+    </article>
   );
 }
 
@@ -352,6 +622,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
   );
   const descriptionsCount =
     data?.activities.filter((activity) => Boolean(activity.description)).length ?? 0;
+  const insightKpis = data ? buildInsightKpis(data.activities, data.athleteZones) : [];
 
   return (
     <section className="rounded-[2rem] border border-[color:var(--border)] bg-white/78 p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)]">
@@ -491,6 +762,27 @@ export function ExportPanel({ connected }: { connected: boolean }) {
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/88 p-5 xl:col-span-2">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-black/60">
+                    Insight-Layer
+                  </h3>
+                  <p className="mt-2 text-sm text-black/58">
+                    Kompakte KPI-Zusammenfassung direkt aus dem aktuellen Export.
+                  </p>
+                </div>
+                <span className="rounded-full bg-[color:var(--accent)]/12 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)]">
+                  {insightKpis.length} KPIs
+                </span>
+              </div>
+              <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))]">
+                {insightKpis.map((insight) => (
+                  <InsightCard key={insight.id} insight={insight} />
+                ))}
+              </div>
+            </div>
+
             <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-[#fffdf8] p-5">
               <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-black/60">
                 Athleten-Zonen
