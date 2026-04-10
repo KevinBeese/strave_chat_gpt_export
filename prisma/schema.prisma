@@ -1,0 +1,28 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model StravaConnection {
+  id            String   @id @default(cuid())
+  athleteId     String   @unique
+  athleteName   String?
+  accessToken   String
+  refreshToken  String
+  expiresAt     DateTime
+  scope         String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+model ExportSnapshot {
+  id           String   @id @default(cuid())
+  rangeStart   DateTime
+  rangeEnd     DateTime
+  activityJson String
+  createdAt    DateTime @default(now())
+}
