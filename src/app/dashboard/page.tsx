@@ -1,11 +1,66 @@
 import { ConnectButton } from "@/components/connect-button";
+import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
 import { getConnectionStatus } from "@/lib/connection-status";
 
 export const dynamic = "force-dynamic";
 
-export default async function DashboardPage() {
+function getStatusMessage(searchParams: Record<string, string | string[] | undefined>) {
+  const connected = searchParams.connected;
+  const disconnected = searchParams.disconnected;
+  const error = searchParams.error;
+
+  if (connected === "1") {
+    return {
+      tone: "success" as const,
+      text: "Strava wurde erfolgreich verbunden. Du kannst jetzt den 7-Tage-Export starten.",
+    };
+  }
+
+  if (disconnected === "1") {
+    return {
+      tone: "neutral" as const,
+      text: "Die lokale Strava-Verbindung wurde entfernt.",
+    };
+  }
+
+  if (typeof error === "string") {
+    const messages: Record<string, string> = {
+      access_denied: "Die Strava-Freigabe wurde abgebrochen.",
+      invalid_state: "Die Rueckkehr von Strava konnte nicht sicher verifiziert werden. Bitte versuche den Login erneut.",
+      missing_code: "Strava hat keinen gueltigen OAuth-Code zurueckgegeben.",
+      oauth_failed: "Der Austausch des Strava-OAuth-Tokens ist fehlgeschlagen.",
+    };
+
+    return {
+      tone: "error" as const,
+      text: messages[error] ?? `Strava hat mit einem Fehler geantwortet: ${error}`,
+    };
+  }
+
+  return null;
+}
+
+function formatExpiry(expiresAt: string | null) {
+  if (!expiresAt) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("de-DE", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(expiresAt));
+}
+
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
+  const resolvedSearchParams = await searchParams;
   const connection = await getConnectionStatus();
+  const statusMessage = getStatusMessage(resolvedSearchParams);
+  const expiresAt = formatExpiry(connection.expiresAt);
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-10 md:px-10">
@@ -32,9 +87,47 @@ export default async function DashboardPage() {
                 ? `Verbundener Athlet: ${connection.label}`
                 : "Lege zuerst die Strava-Umgebungsvariablen an und verbinde dann deinen Account."}
             </p>
+            {connection.athleteId ? (
+              <p className="mt-2 text-xs uppercase tracking-[0.14em] text-black/42">
+                Strava Athlete ID: {connection.athleteId}
+              </p>
+            ) : null}
+            {expiresAt ? (
+              <p className="mt-2 text-sm leading-6 text-black/58">
+                Token gueltig bis: {expiresAt}
+              </p>
+            ) : null}
+            {connection.grantedScopes.length > 0 ? (
+              <p className="mt-2 text-sm leading-6 text-black/58">
+                Scopes: {connection.grantedScopes.join(", ")}
+              </p>
+            ) : null}
+            {!connection.hasProfileReadAll && connection.connected ? (
+              <p className="mt-2 text-sm leading-6 text-[color:var(--accent)]">
+                Fuer Profil-Zonen wie Herzfrequenz- und Power-Bereiche bitte die
+                Strava-Verbindung einmal neu autorisieren.
+              </p>
+            ) : null}
           </div>
-          <div className="mt-6">
-            <ConnectButton disabled={!connection.canStartOauth} />
+          {statusMessage ? (
+            <div
+              className={`mt-6 rounded-3xl border p-4 text-sm ${
+                statusMessage.tone === "error"
+                  ? "border-red-200 bg-red-50 text-red-700"
+                  : statusMessage.tone === "success"
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                    : "border-black/10 bg-black/5 text-black/70"
+              }`}
+            >
+              {statusMessage.text}
+            </div>
+          ) : null}
+          <div className="mt-6 flex flex-wrap gap-3">
+            <ConnectButton
+              connected={connection.connected}
+              disabled={!connection.canStartOauth}
+            />
+            {connection.connected ? <DisconnectButton /> : null}
           </div>
         </section>
 

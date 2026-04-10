@@ -1,21 +1,23 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildExportPayload, getRecentActivities } from "@/lib/strava";
+import { buildExportPayload, syncAndLoadActivities } from "@/lib/strava";
+
+const allowedDays = new Set([7, 14, 30]);
 
 export async function GET(request: NextRequest) {
   const daysParam = request.nextUrl.searchParams.get("days") ?? "7";
   const days = Number(daysParam);
 
-  if (!Number.isFinite(days) || days <= 0 || days > 30) {
+  if (!Number.isFinite(days) || !allowedDays.has(days)) {
     return NextResponse.json(
-      { error: "days must be a number between 1 and 30" },
+      { error: "days must be one of 7, 14 or 30" },
       { status: 400 },
     );
   }
 
   try {
-    const activities = await getRecentActivities(days);
-    const payload = buildExportPayload(activities, days);
+    const { activities, athleteZones, grantedScopes } = await syncAndLoadActivities(days);
+    const payload = buildExportPayload(activities, days, athleteZones, grantedScopes);
     return NextResponse.json(payload);
   } catch (error) {
     const message =

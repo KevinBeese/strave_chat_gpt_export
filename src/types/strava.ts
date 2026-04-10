@@ -13,6 +13,39 @@ export type StravaTokenResponse = {
 };
 
 export type TokenUpsertPayload = StravaTokenResponse;
+export type TokenUpsertInput = TokenUpsertPayload & {
+  scope?: string;
+};
+
+export type StravaTimedZoneRange = {
+  min: number;
+  max: number;
+  time: number;
+};
+
+export type StravaActivityZone = {
+  type: "heartrate" | "power" | string;
+  sensor_based?: boolean;
+  points?: number;
+  custom_zones?: boolean;
+  max?: number;
+  score?: number;
+  distribution_buckets?: StravaTimedZoneRange[] | string;
+};
+
+export type StravaZoneRange = {
+  min: number;
+  max: number;
+};
+
+export type StravaAthleteZones = {
+  heart_rate?: {
+    zones: StravaZoneRange[];
+  };
+  power?: {
+    zones: StravaZoneRange[];
+  };
+};
 
 export type StravaActivity = {
   id: number;
@@ -28,6 +61,11 @@ export type StravaActivity = {
   max_speed: number;
   average_heartrate?: number;
   max_heartrate?: number;
+  average_watts?: number;
+  weighted_average_watts?: number;
+  max_watts?: number;
+  kilojoules?: number;
+  device_watts?: boolean;
   calories?: number;
   description?: string;
 };
