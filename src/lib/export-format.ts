@@ -1,10 +1,26 @@
-import type { ActivityZone, AthleteZones, ExportPayload, NormalizedActivity } from "@/types/export";
+import type {
+  ActivityZone,
+  AthleteZones,
+  ExportPayload,
+  ExportSnapshotSummary,
+  NormalizedActivity,
+  ScopeRequirement,
+} from "@/types/export";
 
 function formatDistance(distanceMeters: number) {
   return `${(distanceMeters / 1000).toFixed(2)} km`;
 }
 
 function formatDuration(seconds: number) {
+  const minutes = Math.round(seconds / 60);
+  return `${minutes} min`;
+}
+
+function formatZoneDuration(seconds: number) {
+  if (seconds < 60) {
+    return `0:${String(seconds).padStart(2, "0")} min`;
+  }
+
   const minutes = Math.round(seconds / 60);
   return `${minutes} min`;
 }
@@ -25,6 +41,60 @@ function formatHeartRate(value: number | null) {
   return `${Math.round(value)} bpm`;
 }
 
+function formatPower(value: number | null) {
+  if (!value) {
+    return null;
+  }
+
+  return `${Math.round(value)} W`;
+}
+
+function formatOpenEndedRange(min: number, max: number) {
+  if (max < 0) {
+    return `${min}+`;
+  }
+
+  return `${min}-${max}`;
+}
+
+function getPowerZoneLabel(min: number, max: number) {
+  const rangeLabel = max === 0 ? "0 W" : `${formatOpenEndedRange(min, max)} W`;
+
+  if (max < 0) {
+    return `Sprint (${rangeLabel})`;
+  }
+
+  if (max === 0) {
+    return `Coasting (${rangeLabel})`;
+  }
+
+  if (max < 100) {
+    return `Very Easy (${rangeLabel})`;
+  }
+
+  if (max < 150) {
+    return `Endurance (${rangeLabel})`;
+  }
+
+  if (max < 200) {
+    return `Tempo (${rangeLabel})`;
+  }
+
+  if (max < 250) {
+    return `Threshold (${rangeLabel})`;
+  }
+
+  if (max < 300) {
+    return `VO2 (${rangeLabel})`;
+  }
+
+  if (max < 400) {
+    return `Anaerobic (${rangeLabel})`;
+  }
+
+  return `Sprint (${rangeLabel})`;
+}
+
 function formatZoneBuckets(zones: ActivityZone[], type: "heartrate" | "power") {
   const zone = zones.find((entry) => entry.type === type);
 
@@ -38,7 +108,13 @@ function formatZoneBuckets(zones: ActivityZone[], type: "heartrate" | "power") {
   }
 
   return activeBuckets
-    .map((bucket, index) => `Z${index + 1}: ${formatDuration(bucket.time)}`)
+    .map((bucket, index) => {
+      if (type === "power") {
+        return `${getPowerZoneLabel(bucket.min, bucket.max)}: ${formatZoneDuration(bucket.time)}`;
+      }
+
+      return `Z${index + 1}: ${formatZoneDuration(bucket.time)}`;
+    })
     .join(", ");
 }
 
@@ -48,10 +124,18 @@ function formatAthleteZoneRanges(title: string, ranges: { min: number; max: numb
   }
 
   const formatted = ranges
-    .map((range, index) => `Z${index + 1} ${range.min}-${range.max}`)
+    .map((range, index) => `Z${index + 1} ${formatOpenEndedRange(range.min, range.max)}`)
     .join(" · ");
 
   return `${title}: ${formatted}`;
+}
+
+function buildScopeRequirements(grantedScopes: string[], requiredScopes: string[]): ScopeRequirement[] {
+  return requiredScopes.map((scope) => ({
+    scope,
+    granted: grantedScopes.includes(scope),
+    required: true,
+  }));
 }
 
 function getActivityContext(activity: NormalizedActivity) {
@@ -69,6 +153,11 @@ function getActivityContext(activity: NormalizedActivity) {
 }
 
 function toPromptLine(activity: NormalizedActivity, index: number) {
+  const heartRateZones = formatZoneBuckets(activity.zones, "heartrate");
+  const powerZones = formatZoneBuckets(activity.zones, "power");
+  const averagePower = formatPower(activity.averageWatts);
+  const weightedPower = formatPower(activity.weightedAverageWatts);
+  const maxPower = formatPower(activity.maxWatts);
   const lines = [
     `${index + 1}. ${activity.name}`,
     `- Trainingsart: ${activity.analysisLabel}`,
@@ -98,34 +187,38 @@ function toPromptLine(activity: NormalizedActivity, index: number) {
     lines.push(`- Maxpuls: ${Math.round(activity.maxHeartrate)}`);
   }
 
-  if (activity.averageWatts) {
-    lines.push(`- Durchschnittsleistung: ${Math.round(activity.averageWatts)} W`);
+  if (averagePower) {
+    lines.push(`- Durchschnittsleistung: ${averagePower}`);
   }
 
-  if (activity.weightedAverageWatts) {
-    lines.push(`- Weighted Avg Power: ${Math.round(activity.weightedAverageWatts)} W`);
+  if (weightedPower) {
+    lines.push(`- Weighted Avg Power: ${weightedPower}`);
   }
 
-  if (activity.maxWatts) {
-    lines.push(`- Maximalleistung: ${Math.round(activity.maxWatts)} W`);
+  if (maxPower) {
+    lines.push(`- Maximalleistung: ${maxPower}`);
   }
 
   if (activity.kilojoules) {
     lines.push(`- Arbeit: ${Math.round(activity.kilojoules)} kJ`);
   }
 
-  const heartRateZones = formatZoneBuckets(activity.zones, "heartrate");
   if (heartRateZones) {
     lines.push(`- Herzfrequenzzonen: ${heartRateZones}`);
   }
 
-  const powerZones = formatZoneBuckets(activity.zones, "power");
   if (powerZones) {
     lines.push(`- Power-Zonen: ${powerZones}`);
   }
 
+  if (activity.deviceWatts !== null) {
+    lines.push(
+      `- Powerquelle: ${activity.deviceWatts ? "geraetebasiert / Outdoor-Messung" : "von Strava geschaetzt"}`,
+    );
+  }
+
   if (activity.description) {
-    lines.push(`- Notiz: ${activity.description}`);
+    lines.push(`- Wichtige Beschreibung aus Strava: ${activity.description}`);
   }
 
   return lines.join("\n");
@@ -140,10 +233,10 @@ export function buildChatGptPrompt(
 ) {
   const header = [
     `Hier sind meine Strava-Aktivitaeten der letzten ${selectedDays} Tage.`,
-    "Bitte analysiere Trainingsumfang, Belastung, Intensitaetsverteilung und auffaellige Muster.",
+    "Bitte analysiere Trainingsumfang, Belastung, Intensitaetsverteilung, Power-Muster und auffaellige Muster.",
     "Wenn bei Aktivitaeten keine Distanzdaten vorhanden sind, bewerte sie bitte ueber Dauer, Herzfrequenz und Aktivitaetstyp statt ueber Kilometer oder Pace.",
     "Nutze dafuer bevorzugt die Trainingsart und Kontextbeschreibung statt nur den rohen Strava-Typ.",
-    "Wenn eine Notiz vorhanden ist, beziehe sie als zusaetzlichen Kontext in die Analyse ein.",
+    "Wenn Profil-Zonen, Power-Zonen oder Beschreibungen vorhanden sind, behandle sie als wichtigen Kontext und nenne Inkonsistenzen explizit.",
     "",
     `Zeitraum: ${rangeLabel}`,
     `Anzahl Aktivitaeten: ${activities.length}`,
@@ -190,7 +283,9 @@ export function createExportPayload(
   selectedDays: number,
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
+  requiredScopes: string[],
   missingScopes: string[],
+  snapshots: ExportSnapshotSummary[],
 ): ExportPayload {
   const rangeLabel = `${formatDate(rangeStart)} bis ${formatDate(rangeEnd)}`;
 
@@ -212,5 +307,7 @@ export function createExportPayload(
       athleteZones,
       missingScopes,
     ),
+    requiredScopes: buildScopeRequirements(grantedScopes, requiredScopes),
+    snapshots,
   };
 }
