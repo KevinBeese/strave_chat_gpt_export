@@ -36,6 +36,18 @@ function formatDuration(seconds: number) {
   return `${Math.round(seconds / 60)} min`;
 }
 
+function formatDurationCompact(seconds: number) {
+  const roundedMinutes = Math.round(seconds / 60);
+  const hours = Math.floor(roundedMinutes / 60);
+  const minutes = roundedMinutes % 60;
+
+  if (hours <= 0) {
+    return `${minutes} min`;
+  }
+
+  return `${hours} h ${minutes} min`;
+}
+
 function formatPercentage(value: number, total: number) {
   if (total <= 0) {
     return "0 %";
@@ -58,6 +70,16 @@ function formatPower(value: number | null) {
   }
 
   return `${Math.round(value)} W`;
+}
+
+function formatSignedNumber(value: number, suffix = "") {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${Math.round(value * 100) / 100}${suffix}`;
+}
+
+function formatSignedPercent(value: number) {
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${Math.round(value * 10) / 10} %`;
 }
 
 function formatOpenEndedRange(min: number, max: number) {
@@ -475,6 +497,38 @@ function InsightCard({ insight }: { insight: InsightKpi }) {
   );
 }
 
+function SnapshotDeltaCard({
+  label,
+  currentValue,
+  previousValue,
+  deltaValue,
+  deltaPercent,
+}: {
+  label: string;
+  currentValue: string;
+  previousValue: string | null;
+  deltaValue: string | null;
+  deltaPercent: string | null;
+}) {
+  return (
+    <article className="rounded-2xl border border-black/8 bg-black/[0.03] p-4">
+      <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-black/44">
+        {label}
+      </p>
+      <p className="mt-2 text-xl font-semibold text-black/82">{currentValue}</p>
+      <p className="mt-2 text-xs leading-5 text-black/58">
+        {previousValue ? `Vorher: ${previousValue}` : "Kein vorheriger Snapshot"}
+      </p>
+      {deltaValue ? (
+        <p className="mt-2 text-xs font-medium leading-5 text-black/68">
+          Delta: {deltaValue}
+          {deltaPercent ? ` (${deltaPercent})` : ""}
+        </p>
+      ) : null}
+    </article>
+  );
+}
+
 function ActivityCard({ activity }: { activity: NormalizedActivity }) {
   const heartRateZoneSummary = summarizeZoneDistribution(activity.zones, "heartrate");
   const powerZoneSummary = summarizeZoneDistribution(activity.zones, "power");
@@ -623,6 +677,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
   const descriptionsCount =
     data?.activities.filter((activity) => Boolean(activity.description)).length ?? 0;
   const insightKpis = data ? buildInsightKpis(data.activities, data.athleteZones) : [];
+  const snapshotCompare = data?.snapshotCompare ?? null;
 
   return (
     <section className="rounded-[2rem] border border-[color:var(--border)] bg-white/78 p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)]">
@@ -762,6 +817,90 @@ export function ExportPanel({ connected }: { connected: boolean }) {
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[1.05fr_0.95fr]">
+            {snapshotCompare ? (
+              <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/88 p-5 xl:col-span-2">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-black/60">
+                      Snapshot-Compare
+                    </h3>
+                    <p className="mt-2 text-sm text-black/58">
+                      Vorher/Nachher-Delta fuer Load, Intensitaet und Dauer.
+                    </p>
+                  </div>
+                  <span className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-black/52">
+                    {snapshotCompare.previousSnapshot
+                      ? `Vergleich zu ${formatDateTime(snapshotCompare.previousSnapshot.createdAt)}`
+                      : "Erster Snapshot"}
+                  </span>
+                </div>
+                <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
+                  <SnapshotDeltaCard
+                    label="Load"
+                    currentValue={String(snapshotCompare.load.current)}
+                    previousValue={
+                      snapshotCompare.load.previous === null
+                        ? null
+                        : String(snapshotCompare.load.previous)
+                    }
+                    deltaValue={
+                      snapshotCompare.load.delta === null
+                        ? null
+                        : formatSignedNumber(snapshotCompare.load.delta)
+                    }
+                    deltaPercent={
+                      snapshotCompare.load.deltaPercent === null
+                        ? null
+                        : formatSignedPercent(snapshotCompare.load.deltaPercent)
+                    }
+                  />
+                  <SnapshotDeltaCard
+                    label="Intensitaet"
+                    currentValue={`${snapshotCompare.intensity.current} %`}
+                    previousValue={
+                      snapshotCompare.intensity.previous === null
+                        ? null
+                        : `${snapshotCompare.intensity.previous} %`
+                    }
+                    deltaValue={
+                      snapshotCompare.intensity.delta === null
+                        ? null
+                        : formatSignedNumber(snapshotCompare.intensity.delta, " pp")
+                    }
+                    deltaPercent={
+                      snapshotCompare.intensity.deltaPercent === null
+                        ? null
+                        : formatSignedPercent(snapshotCompare.intensity.deltaPercent)
+                    }
+                  />
+                  <SnapshotDeltaCard
+                    label="Dauer"
+                    currentValue={formatDurationCompact(
+                      snapshotCompare.durationSeconds.current,
+                    )}
+                    previousValue={
+                      snapshotCompare.durationSeconds.previous === null
+                        ? null
+                        : formatDurationCompact(snapshotCompare.durationSeconds.previous)
+                    }
+                    deltaValue={
+                      snapshotCompare.durationSeconds.delta === null
+                        ? null
+                        : formatSignedNumber(
+                            Math.round(snapshotCompare.durationSeconds.delta / 60),
+                            " min",
+                          )
+                    }
+                    deltaPercent={
+                      snapshotCompare.durationSeconds.deltaPercent === null
+                        ? null
+                        : formatSignedPercent(snapshotCompare.durationSeconds.deltaPercent)
+                    }
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/88 p-5 xl:col-span-2">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -788,7 +927,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                 Athleten-Zonen
               </h3>
               {data.athleteZones ? (
-                <div className="mt-4 grid gap-4 lg:grid-cols-2">
+                <div className="mt-4 grid gap-4">
                   <div className="rounded-2xl border border-black/6 bg-black/[0.03] p-4">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-black/42">
                       Herzfrequenz
