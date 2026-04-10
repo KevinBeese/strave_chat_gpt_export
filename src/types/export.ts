@@ -50,6 +50,8 @@ export type SnapshotMetricDelta = {
 export type SnapshotTrendWindow = {
   days: number;
   sampleSize: number;
+  confidenceLevel: "low" | "medium" | "high";
+  confidenceLabel: string;
   current: number;
   previous: number | null;
   delta: number | null;
@@ -78,10 +80,31 @@ export type SnapshotCompareMetrics = {
 
 export type SnapshotFormulaConfig = {
   version: string;
-  hrWeight: number;
-  powerWeight: number;
   defaultIntensity: number;
+  weightProfiles: {
+    default: {
+      hrWeight: number;
+      powerWeight: number;
+      description: string;
+    };
+    run: {
+      hrWeight: number;
+      powerWeight: number;
+      description: string;
+    };
+    ride: {
+      hrWeight: number;
+      powerWeight: number;
+      description: string;
+    };
+    workout: {
+      hrWeight: number;
+      powerWeight: number;
+      description: string;
+    };
+  };
   fallbackOrder: string[];
+  documentation: string[];
 };
 
 export type SnapshotCompare = {

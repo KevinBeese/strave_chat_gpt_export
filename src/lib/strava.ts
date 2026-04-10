@@ -1,6 +1,16 @@
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { createExportPayload } from "@/lib/export-format";
+import {
+  getTrendConfidence,
+  SNAPSHOT_FORMULA_DEFAULT_INTENSITY,
+  SNAPSHOT_FORMULA_DOCUMENTATION,
+  SNAPSHOT_FORMULA_FALLBACK_ORDER,
+  SNAPSHOT_FORMULA_VERSION,
+  SNAPSHOT_FORMULA_WEIGHT_PROFILES,
+  SNAPSHOT_TREND_WINDOWS,
+  type SnapshotFormulaWeightProfileKey,
+} from "@/lib/snapshot-config";
 import type {
   ActivityZone,
   AthleteZones,
@@ -440,12 +450,6 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-const HR_INTENSITY_WEIGHT = 0.7;
-const POWER_INTENSITY_WEIGHT = 0.3;
-const DEFAULT_INTENSITY = 0.45;
-const FORMULA_VERSION = "v1";
-const SNAPSHOT_TREND_WINDOWS = [7, 14, 30] as const;
-
 function getZoneIntensity(activity: NormalizedActivity, type: "heartrate" | "power") {
   const zone = activity.zones.find((entry) => entry.type === type);
   if (!zone || zone.distributionBuckets.length === 0) {
@@ -467,14 +471,39 @@ function getZoneIntensity(activity: NormalizedActivity, type: "heartrate" | "pow
   return weightedSeconds / (totalSeconds * zone.distributionBuckets.length);
 }
 
+function inferFormulaWeightProfile(activity: NormalizedActivity): SnapshotFormulaWeightProfileKey {
+  const normalizedType = activity.type.toLowerCase();
+  const normalizedClassification = activity.classification.toLowerCase();
+
+  if (normalizedType.includes("ride")) {
+    return "ride";
+  }
+
+  if (normalizedType.includes("run")) {
+    return "run";
+  }
+
+  if (
+    normalizedType.includes("workout") ||
+    normalizedType.includes("weighttraining") ||
+    normalizedClassification.includes("workout") ||
+    normalizedClassification.includes("strength") ||
+    normalizedClassification.includes("functional")
+  ) {
+    return "workout";
+  }
+
+  return "default";
+}
+
 function getActivityIntensity(activity: NormalizedActivity) {
   const heartRateIntensity = getZoneIntensity(activity, "heartrate");
   const powerIntensity = getZoneIntensity(activity, "power");
+  const weightProfile = SNAPSHOT_FORMULA_WEIGHT_PROFILES[inferFormulaWeightProfile(activity)];
 
   if (heartRateIntensity !== null && powerIntensity !== null) {
     return clamp(
-      heartRateIntensity * HR_INTENSITY_WEIGHT +
-        powerIntensity * POWER_INTENSITY_WEIGHT,
+      heartRateIntensity * weightProfile.hrWeight + powerIntensity * weightProfile.powerWeight,
       0,
       1,
     );
@@ -496,7 +525,7 @@ function getActivityIntensity(activity: NormalizedActivity) {
     return clamp(activity.averageWatts / activity.maxWatts, 0, 1);
   }
 
-  return DEFAULT_INTENSITY;
+  return SNAPSHOT_FORMULA_DEFAULT_INTENSITY;
 }
 
 type TrainingMetrics = {
@@ -629,6 +658,8 @@ function buildMetricTrend(history: SnapshotMetricHistoryPoint[]): SnapshotMetric
       .map((point) => point.value);
 
     const current = average(currentValues) ?? 0;
+    const sampleSize = currentValues.length;
+    const confidence = getTrendConfidence(sampleSize);
     const previous = average(previousValues);
     const delta = previous === null ? null : roundMetric(current - previous);
     const deltaPercent =
@@ -638,7 +669,9 @@ function buildMetricTrend(history: SnapshotMetricHistoryPoint[]): SnapshotMetric
 
     return {
       days,
-      sampleSize: currentValues.length,
+      sampleSize,
+      confidenceLevel: confidence.level,
+      confidenceLabel: confidence.label,
       current,
       previous,
       delta,
@@ -723,18 +756,11 @@ function buildSnapshotCompare(
 ): SnapshotCompare {
   return {
     formula: {
-      version: FORMULA_VERSION,
-      hrWeight: HR_INTENSITY_WEIGHT,
-      powerWeight: POWER_INTENSITY_WEIGHT,
-      defaultIntensity: DEFAULT_INTENSITY,
-      fallbackOrder: [
-        "Zone-basiert (HR/Power)",
-        "Nur HR",
-        "Nur Power",
-        "Durchschnittspuls/180",
-        "Durchschnittsleistung/Maximalleistung",
-        "Fixer Default",
-      ],
+      version: SNAPSHOT_FORMULA_VERSION,
+      defaultIntensity: SNAPSHOT_FORMULA_DEFAULT_INTENSITY,
+      weightProfiles: SNAPSHOT_FORMULA_WEIGHT_PROFILES,
+      fallbackOrder: [...SNAPSHOT_FORMULA_FALLBACK_ORDER],
+      documentation: [...SNAPSHOT_FORMULA_DOCUMENTATION],
     },
     bySport: {
       all: buildCompareMetrics(activities, previous, snapshotHistory, "all"),

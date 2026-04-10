@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
+import { SNAPSHOT_TREND_CONFIDENCE_BANDS } from "@/lib/snapshot-config";
 import type {
   ActivityZone,
   AthleteZoneRange,
@@ -94,15 +95,16 @@ function formatTrendWindow(
   days: number,
   delta: number | null,
   deltaPercent: number | null,
+  confidenceLabel: string,
   unit = "",
 ) {
   if (delta === null) {
-    return `${days}d n/a`;
+    return `${days}d n/a · ${confidenceLabel}`;
   }
 
   const deltaLabel = formatSignedNumber(delta, unit);
   const percentLabel = deltaPercent === null ? "" : ` (${formatSignedPercent(deltaPercent)})`;
-  return `${days}d ${deltaLabel}${percentLabel}`;
+  return `${days}d ${deltaLabel}${percentLabel} · ${confidenceLabel}`;
 }
 
 function formatOpenEndedRange(min: number, max: number) {
@@ -785,6 +787,63 @@ export function ExportPanel({ connected }: { connected: boolean }) {
           </button>
         ) : null}
       </div>
+      {snapshotCompare ? (
+        <div className="mt-8 max-w-3xl space-y-3">
+          <div className="rounded-xl border border-black/8 bg-black/[0.03] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-black/46">
+              Legende Formel-Profile
+            </p>
+            <p className="mt-2 text-xs leading-5 text-black/62">
+              Run: HR {Math.round(snapshotCompare.formula.weightProfiles.run.hrWeight * 100)}% /
+              Power {Math.round(snapshotCompare.formula.weightProfiles.run.powerWeight * 100)}%
+              {" · "}
+              {snapshotCompare.formula.weightProfiles.run.description}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-black/62">
+              Ride: HR {Math.round(snapshotCompare.formula.weightProfiles.ride.hrWeight * 100)}% /
+              Power {Math.round(snapshotCompare.formula.weightProfiles.ride.powerWeight * 100)}%
+              {" · "}
+              {snapshotCompare.formula.weightProfiles.ride.description}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-black/62">
+              Workout: HR {Math.round(snapshotCompare.formula.weightProfiles.workout.hrWeight * 100)}
+              % / Power{" "}
+              {Math.round(snapshotCompare.formula.weightProfiles.workout.powerWeight * 100)}%
+              {" · "}
+              {snapshotCompare.formula.weightProfiles.workout.description}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-black/62">
+              Default: HR {Math.round(snapshotCompare.formula.weightProfiles.default.hrWeight * 100)}
+              % / Power{" "}
+              {Math.round(snapshotCompare.formula.weightProfiles.default.powerWeight * 100)}%{" "}
+              {" · "}
+              {snapshotCompare.formula.weightProfiles.default.description}
+            </p>
+          </div>
+          <div className="rounded-xl border border-black/8 bg-black/[0.03] p-3">
+            <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-black/46">
+              Legende Trend Confidence
+            </p>
+            <div className="mt-2 space-y-1">
+              {SNAPSHOT_TREND_CONFIDENCE_BANDS.map((band, index) => {
+                const maxBand = SNAPSHOT_TREND_CONFIDENCE_BANDS[index - 1];
+                const rangeLabel = maxBand
+                  ? `n=${band.minSampleSize}-${maxBand.minSampleSize - 1}`
+                  : `n>=${band.minSampleSize}`;
+
+                return (
+                  <p key={band.level} className="text-xs leading-5 text-black/62">
+                    {band.label}: {rangeLabel}
+                  </p>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-xs leading-5 text-black/56">
+              Zeigt die Belastbarkeit der 7d/14d/30d-Trends auf Basis von `sampleSize`.
+            </p>
+          </div>
+        </div>
+      ) : null}
 
       {!connected ? (
         <p className="mt-4 text-sm text-black/58">
@@ -898,9 +957,16 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                   {snapshotCompareForSport?.sampleSize ?? 0}
                 </p>
                 <p className="mt-1 text-xs text-black/52">
-                  Formel {snapshotCompare.formula.version}: HR {Math.round(snapshotCompare.formula.hrWeight * 100)}
-                  % / Power {Math.round(snapshotCompare.formula.powerWeight * 100)}% ·
-                  Default-Intensitaet {Math.round(snapshotCompare.formula.defaultIntensity * 100)}%
+                  Formel {snapshotCompare.formula.version}: Run HR{" "}
+                  {Math.round(snapshotCompare.formula.weightProfiles.run.hrWeight * 100)}% /
+                  Power {Math.round(snapshotCompare.formula.weightProfiles.run.powerWeight * 100)}
+                  % · Ride HR {Math.round(snapshotCompare.formula.weightProfiles.ride.hrWeight * 100)}
+                  % / Power {Math.round(snapshotCompare.formula.weightProfiles.ride.powerWeight * 100)}
+                  % · Default-Intensitaet{" "}
+                  {Math.round(snapshotCompare.formula.defaultIntensity * 100)}%
+                </p>
+                <p className="mt-1 text-xs text-black/48">
+                  {snapshotCompare.formula.documentation.join(" ")}
                 </p>
                 <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
                   <SnapshotDeltaCard
@@ -937,6 +1003,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                               window.days,
                               window.delta,
                               window.deltaPercent,
+                              window.confidenceLabel,
                             ),
                           )
                         : []
@@ -976,6 +1043,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                               window.days,
                               window.delta,
                               window.deltaPercent,
+                              window.confidenceLabel,
                               " pp",
                             ),
                           )
@@ -1026,6 +1094,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                                 window.days,
                                 window.delta === null ? null : Math.round(window.delta / 60),
                                 window.deltaPercent,
+                                window.confidenceLabel,
                                 " min",
                               ),
                           )
