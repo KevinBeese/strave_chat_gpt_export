@@ -8,6 +8,7 @@ import type {
   AthleteZoneRange,
   ExportPayload,
   NormalizedActivity,
+  SnapshotSportFilter,
   ScopeRequirement,
 } from "@/types/export";
 
@@ -16,6 +17,13 @@ const periodOptions = [
   { label: "14 Tage", value: 14 },
   { label: "30 Tage", value: 30 },
 ] as const;
+
+const snapshotSportFilterOptions: { label: string; value: SnapshotSportFilter }[] = [
+  { label: "All", value: "all" },
+  { label: "Ride", value: "ride" },
+  { label: "Run", value: "run" },
+  { label: "Workout", value: "workout" },
+];
 
 function formatDate(dateIso: string) {
   return new Intl.DateTimeFormat("de-DE", {
@@ -80,6 +88,21 @@ function formatSignedNumber(value: number, suffix = "") {
 function formatSignedPercent(value: number) {
   const sign = value > 0 ? "+" : "";
   return `${sign}${Math.round(value * 10) / 10} %`;
+}
+
+function formatTrendWindow(
+  days: number,
+  delta: number | null,
+  deltaPercent: number | null,
+  unit = "",
+) {
+  if (delta === null) {
+    return `${days}d n/a`;
+  }
+
+  const deltaLabel = formatSignedNumber(delta, unit);
+  const percentLabel = deltaPercent === null ? "" : ` (${formatSignedPercent(deltaPercent)})`;
+  return `${days}d ${deltaLabel}${percentLabel}`;
 }
 
 function formatOpenEndedRange(min: number, max: number) {
@@ -503,12 +526,16 @@ function SnapshotDeltaCard({
   previousValue,
   deltaValue,
   deltaPercent,
+  trendValue,
+  trendWindows,
 }: {
   label: string;
   currentValue: string;
   previousValue: string | null;
   deltaValue: string | null;
   deltaPercent: string | null;
+  trendValue: string | null;
+  trendWindows: string[];
 }) {
   return (
     <article className="rounded-2xl border border-black/8 bg-black/[0.03] p-4">
@@ -523,6 +550,14 @@ function SnapshotDeltaCard({
         <p className="mt-2 text-xs font-medium leading-5 text-black/68">
           Delta: {deltaValue}
           {deltaPercent ? ` (${deltaPercent})` : ""}
+        </p>
+      ) : null}
+      {trendValue ? (
+        <p className="mt-2 text-xs leading-5 text-black/62">3-Snapshot-Mittel: {trendValue}</p>
+      ) : null}
+      {trendWindows.length > 0 ? (
+        <p className="mt-2 text-xs leading-5 text-black/58">
+          Trend: {trendWindows.join(" · ")}
         </p>
       ) : null}
     </article>
@@ -629,6 +664,8 @@ export function ExportPanel({ connected }: { connected: boolean }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number>(7);
+  const [selectedSportFilter, setSelectedSportFilter] =
+    useState<SnapshotSportFilter>("all");
 
   async function handleExport() {
     setLoading(true);
@@ -678,6 +715,12 @@ export function ExportPanel({ connected }: { connected: boolean }) {
     data?.activities.filter((activity) => Boolean(activity.description)).length ?? 0;
   const insightKpis = data ? buildInsightKpis(data.activities, data.athleteZones) : [];
   const snapshotCompare = data?.snapshotCompare ?? null;
+  const snapshotCompareForSport = snapshotCompare
+    ? snapshotCompare.bySport[selectedSportFilter]
+    : null;
+  const selectedSnapshotSportLabel =
+    snapshotSportFilterOptions.find((option) => option.value === selectedSportFilter)
+      ?.label ?? "All";
 
   return (
     <section className="rounded-[2rem] border border-[color:var(--border)] bg-white/78 p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)]">
@@ -825,76 +868,168 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                       Snapshot-Compare
                     </h3>
                     <p className="mt-2 text-sm text-black/58">
-                      Vorher/Nachher-Delta fuer Load, Intensitaet und Dauer.
+                      Vorher/Nachher, 7d/14d/30d Trends und 3-Snapshot-Mittel.
                     </p>
                   </div>
                   <span className="rounded-full bg-black/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-black/52">
-                    {snapshotCompare.previousSnapshot
-                      ? `Vergleich zu ${formatDateTime(snapshotCompare.previousSnapshot.createdAt)}`
+                    {snapshotCompareForSport?.previousSnapshot
+                      ? `Vergleich zu ${formatDateTime(snapshotCompareForSport.previousSnapshot.createdAt)}`
                       : "Erster Snapshot"}
                   </span>
                 </div>
+                <div className="mt-4 flex flex-wrap items-center gap-2">
+                  {snapshotSportFilterOptions.map((option) => (
+                    <button
+                      key={option.value}
+                      className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] transition ${
+                        selectedSportFilter === option.value
+                          ? "bg-[color:var(--accent)] text-white"
+                          : "bg-black/6 text-black/62 hover:bg-black/10"
+                      }`}
+                      onClick={() => setSelectedSportFilter(option.value)}
+                      type="button"
+                    >
+                      {option.label}
+                    </button>
+                  ))}
+                </div>
+                <p className="mt-3 text-xs text-black/56">
+                  Filter: {selectedSnapshotSportLabel} · Sessions im aktuellen Snapshot:{" "}
+                  {snapshotCompareForSport?.sampleSize ?? 0}
+                </p>
+                <p className="mt-1 text-xs text-black/52">
+                  Formel {snapshotCompare.formula.version}: HR {Math.round(snapshotCompare.formula.hrWeight * 100)}
+                  % / Power {Math.round(snapshotCompare.formula.powerWeight * 100)}% ·
+                  Default-Intensitaet {Math.round(snapshotCompare.formula.defaultIntensity * 100)}%
+                </p>
                 <div className="mt-4 grid gap-3 [grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))]">
                   <SnapshotDeltaCard
                     label="Load"
-                    currentValue={String(snapshotCompare.load.current)}
+                    currentValue={String(snapshotCompareForSport?.load.current ?? 0)}
                     previousValue={
-                      snapshotCompare.load.previous === null
+                      snapshotCompareForSport?.load.previous === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : String(snapshotCompare.load.previous)
+                        : String(snapshotCompareForSport.load.previous)
                     }
                     deltaValue={
-                      snapshotCompare.load.delta === null
+                      snapshotCompareForSport?.load.delta === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatSignedNumber(snapshotCompare.load.delta)
+                        : formatSignedNumber(snapshotCompareForSport.load.delta)
                     }
                     deltaPercent={
-                      snapshotCompare.load.deltaPercent === null
+                      snapshotCompareForSport?.load.deltaPercent === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatSignedPercent(snapshotCompare.load.deltaPercent)
+                        : formatSignedPercent(snapshotCompareForSport.load.deltaPercent)
+                    }
+                    trendValue={
+                      snapshotCompareForSport?.trends.load.rollingAverage3 === null ||
+                      !snapshotCompareForSport
+                        ? null
+                        : String(snapshotCompareForSport.trends.load.rollingAverage3)
+                    }
+                    trendWindows={
+                      snapshotCompareForSport
+                        ? snapshotCompareForSport.trends.load.windows.map((window) =>
+                            formatTrendWindow(
+                              window.days,
+                              window.delta,
+                              window.deltaPercent,
+                            ),
+                          )
+                        : []
                     }
                   />
                   <SnapshotDeltaCard
                     label="Intensitaet"
-                    currentValue={`${snapshotCompare.intensity.current} %`}
+                    currentValue={`${snapshotCompareForSport?.intensity.current ?? 0} %`}
                     previousValue={
-                      snapshotCompare.intensity.previous === null
+                      snapshotCompareForSport?.intensity.previous === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : `${snapshotCompare.intensity.previous} %`
+                        : `${snapshotCompareForSport.intensity.previous} %`
                     }
                     deltaValue={
-                      snapshotCompare.intensity.delta === null
+                      snapshotCompareForSport?.intensity.delta === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatSignedNumber(snapshotCompare.intensity.delta, " pp")
+                        : formatSignedNumber(snapshotCompareForSport.intensity.delta, " pp")
                     }
                     deltaPercent={
-                      snapshotCompare.intensity.deltaPercent === null
+                      snapshotCompareForSport?.intensity.deltaPercent === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatSignedPercent(snapshotCompare.intensity.deltaPercent)
+                        : formatSignedPercent(snapshotCompareForSport.intensity.deltaPercent)
+                    }
+                    trendValue={
+                      snapshotCompareForSport?.trends.intensity.rollingAverage3 === null ||
+                      !snapshotCompareForSport
+                        ? null
+                        : `${snapshotCompareForSport.trends.intensity.rollingAverage3} %`
+                    }
+                    trendWindows={
+                      snapshotCompareForSport
+                        ? snapshotCompareForSport.trends.intensity.windows.map((window) =>
+                            formatTrendWindow(
+                              window.days,
+                              window.delta,
+                              window.deltaPercent,
+                              " pp",
+                            ),
+                          )
+                        : []
                     }
                   />
                   <SnapshotDeltaCard
                     label="Dauer"
                     currentValue={formatDurationCompact(
-                      snapshotCompare.durationSeconds.current,
+                      snapshotCompareForSport?.durationSeconds.current ?? 0,
                     )}
                     previousValue={
-                      snapshotCompare.durationSeconds.previous === null
+                      snapshotCompareForSport?.durationSeconds.previous === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatDurationCompact(snapshotCompare.durationSeconds.previous)
+                        : formatDurationCompact(snapshotCompareForSport.durationSeconds.previous)
                     }
                     deltaValue={
-                      snapshotCompare.durationSeconds.delta === null
+                      snapshotCompareForSport?.durationSeconds.delta === null ||
+                      !snapshotCompareForSport
                         ? null
                         : formatSignedNumber(
-                            Math.round(snapshotCompare.durationSeconds.delta / 60),
+                            Math.round(snapshotCompareForSport.durationSeconds.delta / 60),
                             " min",
                           )
                     }
                     deltaPercent={
-                      snapshotCompare.durationSeconds.deltaPercent === null
+                      snapshotCompareForSport?.durationSeconds.deltaPercent === null ||
+                      !snapshotCompareForSport
                         ? null
-                        : formatSignedPercent(snapshotCompare.durationSeconds.deltaPercent)
+                        : formatSignedPercent(
+                            snapshotCompareForSport.durationSeconds.deltaPercent,
+                          )
+                    }
+                    trendValue={
+                      snapshotCompareForSport?.trends.durationSeconds.rollingAverage3 ===
+                        null || !snapshotCompareForSport
+                        ? null
+                        : formatDurationCompact(
+                            snapshotCompareForSport.trends.durationSeconds.rollingAverage3,
+                          )
+                    }
+                    trendWindows={
+                      snapshotCompareForSport
+                        ? snapshotCompareForSport.trends.durationSeconds.windows.map(
+                            (window) =>
+                              formatTrendWindow(
+                                window.days,
+                                window.delta === null ? null : Math.round(window.delta / 60),
+                                window.deltaPercent,
+                                " min",
+                              ),
+                          )
+                        : []
                     }
                   />
                 </div>

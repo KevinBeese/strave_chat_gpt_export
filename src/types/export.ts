@@ -47,11 +47,46 @@ export type SnapshotMetricDelta = {
   deltaPercent: number | null;
 };
 
-export type SnapshotCompare = {
+export type SnapshotTrendWindow = {
+  days: number;
+  sampleSize: number;
+  current: number;
+  previous: number | null;
+  delta: number | null;
+  deltaPercent: number | null;
+};
+
+export type SnapshotMetricTrend = {
+  rollingAverage3: number | null;
+  windows: SnapshotTrendWindow[];
+};
+
+export type SnapshotSportFilter = "all" | "ride" | "run" | "workout";
+
+export type SnapshotCompareMetrics = {
   previousSnapshot: ExportSnapshotSummary | null;
+  sampleSize: number;
   load: SnapshotMetricDelta;
   intensity: SnapshotMetricDelta;
   durationSeconds: SnapshotMetricDelta;
+  trends: {
+    load: SnapshotMetricTrend;
+    intensity: SnapshotMetricTrend;
+    durationSeconds: SnapshotMetricTrend;
+  };
+};
+
+export type SnapshotFormulaConfig = {
+  version: string;
+  hrWeight: number;
+  powerWeight: number;
+  defaultIntensity: number;
+  fallbackOrder: string[];
+};
+
+export type SnapshotCompare = {
+  formula: SnapshotFormulaConfig;
+  bySport: Record<SnapshotSportFilter, SnapshotCompareMetrics>;
 };
 
 export type NormalizedActivity = {
