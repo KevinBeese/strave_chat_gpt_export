@@ -26,3 +26,35 @@ model ExportSnapshot {
   activityJson String
   createdAt    DateTime @default(now())
 }
+
+model StravaActivity {
+  id                 String   @id @default(cuid())
+  stravaActivityId   BigInt   @unique
+  athleteId          String
+  name               String
+  type               String
+  classification     String
+  analysisLabel      String
+  startDate          DateTime
+  hasDistanceData    Boolean
+  distanceMeters     Float
+  movingTimeSeconds  Int
+  elapsedTimeSeconds Int
+  elevationGainMeters Float
+  averageSpeed       Float
+  maxSpeed           Float
+  averageHeartrate   Float?
+  maxHeartrate       Float?
+  averageWatts       Float?
+  weightedAverageWatts Int?
+  maxWatts           Int?
+  kilojoules         Float?
+  deviceWatts        Boolean?
+  calories           Float?
+  description        String?
+  zonesJson          String?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  @@index([athleteId, startDate])
+}

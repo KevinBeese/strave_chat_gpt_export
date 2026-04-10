@@ -37,7 +37,9 @@ cp .env.example .env.local
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URI`
-- `DATABASE_URL` kann auf `file:./prisma/dev.db` bleiben
+- `DATABASE_URL` kann auf `file:./dev.db` bleiben
+- Als Authorization Callback Domain in Strava fuer den lokalen Test: `localhost`
+- Als Callback URL in Strava: `http://localhost:3000/api/strava/callback`
 
 4. Prisma Client generieren:
 
@@ -52,6 +54,17 @@ npm run dev
 ```
 
 Danach ist die App unter `http://localhost:3000` erreichbar.
+
+## Lokaler OAuth-Test
+
+1. `cp .env.example .env.local`
+2. Trage deine echte Strava `Client ID` und dein `Client Secret` ein
+3. Lasse `APP_URL` auf `http://localhost:3000`
+4. Lasse `STRAVA_REDIRECT_URI` auf `http://localhost:3000/api/strava/callback`
+5. Starte `npm run prisma:setup`
+6. Starte `npm run dev`
+7. Oeffne `http://localhost:3000/dashboard`
+8. Klicke auf `Mit Strava verbinden`
 
 ## Naechste Schritte
 
