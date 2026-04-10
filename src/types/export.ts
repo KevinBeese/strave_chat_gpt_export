@@ -40,6 +40,20 @@ export type ExportSnapshotSummary = {
   hasPowerData: boolean;
 };
 
+export type SnapshotMetricDelta = {
+  current: number;
+  previous: number | null;
+  delta: number | null;
+  deltaPercent: number | null;
+};
+
+export type SnapshotCompare = {
+  previousSnapshot: ExportSnapshotSummary | null;
+  load: SnapshotMetricDelta;
+  intensity: SnapshotMetricDelta;
+  durationSeconds: SnapshotMetricDelta;
+};
+
 export type NormalizedActivity = {
   id: number;
   name: string;
@@ -80,4 +94,5 @@ export type ExportPayload = {
   chatGptPrompt: string;
   requiredScopes: ScopeRequirement[];
   snapshots: ExportSnapshotSummary[];
+  snapshotCompare: SnapshotCompare;
 };

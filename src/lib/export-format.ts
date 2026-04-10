@@ -2,6 +2,7 @@ import type {
   ActivityZone,
   AthleteZones,
   ExportPayload,
+  SnapshotCompare,
   ExportSnapshotSummary,
   NormalizedActivity,
   ScopeRequirement,
@@ -286,6 +287,7 @@ export function createExportPayload(
   requiredScopes: string[],
   missingScopes: string[],
   snapshots: ExportSnapshotSummary[],
+  snapshotCompare: SnapshotCompare,
 ): ExportPayload {
   const rangeLabel = `${formatDate(rangeStart)} bis ${formatDate(rangeEnd)}`;
 
@@ -309,5 +311,6 @@ export function createExportPayload(
     ),
     requiredScopes: buildScopeRequirements(grantedScopes, requiredScopes),
     snapshots,
+    snapshotCompare,
   };
 }

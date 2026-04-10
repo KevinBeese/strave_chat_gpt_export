@@ -7,6 +7,8 @@ import type {
   ExportPayload,
   ExportSnapshotSummary,
   NormalizedActivity,
+  SnapshotCompare,
+  SnapshotMetricDelta,
 } from "@/types/export";
 import type {
   StravaActivity,
@@ -431,6 +433,145 @@ function fromStoredActivity(
   };
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+function getZoneIntensity(activity: NormalizedActivity, type: "heartrate" | "power") {
+  const zone = activity.zones.find((entry) => entry.type === type);
+  if (!zone || zone.distributionBuckets.length === 0) {
+    return null;
+  }
+
+  let totalSeconds = 0;
+  let weightedSeconds = 0;
+
+  zone.distributionBuckets.forEach((bucket, index) => {
+    totalSeconds += bucket.time;
+    weightedSeconds += bucket.time * (index + 1);
+  });
+
+  if (totalSeconds <= 0) {
+    return null;
+  }
+
+  return weightedSeconds / (totalSeconds * zone.distributionBuckets.length);
+}
+
+function getActivityIntensity(activity: NormalizedActivity) {
+  const heartRateIntensity = getZoneIntensity(activity, "heartrate");
+  const powerIntensity = getZoneIntensity(activity, "power");
+
+  if (heartRateIntensity !== null && powerIntensity !== null) {
+    return clamp(heartRateIntensity * 0.7 + powerIntensity * 0.3, 0, 1);
+  }
+
+  if (heartRateIntensity !== null) {
+    return clamp(heartRateIntensity, 0, 1);
+  }
+
+  if (powerIntensity !== null) {
+    return clamp(powerIntensity, 0, 1);
+  }
+
+  if (activity.averageHeartrate) {
+    return clamp(activity.averageHeartrate / 180, 0, 1);
+  }
+
+  if (activity.averageWatts && activity.maxWatts) {
+    return clamp(activity.averageWatts / activity.maxWatts, 0, 1);
+  }
+
+  return 0.45;
+}
+
+type TrainingMetrics = {
+  load: number;
+  intensity: number;
+  durationSeconds: number;
+};
+
+function roundMetric(value: number) {
+  return Math.round(value * 100) / 100;
+}
+
+function calculateTrainingMetrics(activities: NormalizedActivity[]): TrainingMetrics {
+  const durationSeconds = activities.reduce(
+    (sum, activity) => sum + activity.movingTimeSeconds,
+    0,
+  );
+
+  if (durationSeconds <= 0) {
+    return {
+      load: 0,
+      intensity: 0,
+      durationSeconds: 0,
+    };
+  }
+
+  const weightedIntensity = activities.reduce(
+    (sum, activity) =>
+      sum + getActivityIntensity(activity) * activity.movingTimeSeconds,
+    0,
+  );
+  const intensity = (weightedIntensity / durationSeconds) * 100;
+  const load = (durationSeconds / 3600) * intensity;
+
+  return {
+    load: roundMetric(load),
+    intensity: roundMetric(intensity),
+    durationSeconds,
+  };
+}
+
+function buildMetricDelta(current: number, previous: number | null): SnapshotMetricDelta {
+  if (previous === null) {
+    return {
+      current,
+      previous: null,
+      delta: null,
+      deltaPercent: null,
+    };
+  }
+
+  const delta = roundMetric(current - previous);
+  const deltaPercent =
+    previous === 0 ? null : roundMetric(((current - previous) / previous) * 100);
+
+  return {
+    current,
+    previous,
+    delta,
+    deltaPercent,
+  };
+}
+
+function buildSnapshotCompare(
+  activities: NormalizedActivity[],
+  previous: {
+    summary: ExportSnapshotSummary;
+    payload: StoredSnapshotPayload;
+  } | null,
+): SnapshotCompare {
+  const currentMetrics = calculateTrainingMetrics(activities);
+  const previousMetrics = previous
+    ? calculateTrainingMetrics(previous.payload.activities)
+    : null;
+
+  return {
+    previousSnapshot: previous?.summary ?? null,
+    load: buildMetricDelta(currentMetrics.load, previousMetrics?.load ?? null),
+    intensity: buildMetricDelta(
+      currentMetrics.intensity,
+      previousMetrics?.intensity ?? null,
+    ),
+    durationSeconds: buildMetricDelta(
+      currentMetrics.durationSeconds,
+      previousMetrics?.durationSeconds ?? null,
+    ),
+  };
+}
+
 export async function syncAndLoadActivities(days: number) {
   const { athleteId, accessToken, grantedScopes } = await getValidAccessToken();
   const recentActivities = await getRecentActivities(days);
@@ -468,29 +609,38 @@ type StoredSnapshotPayload = Pick<
   "selectedDays" | "activityCount" | "rangeLabel" | "athleteZones" | "activities"
 >;
 
-function toSnapshotSummary(
+function parseStoredSnapshotPayload(
   snapshot: Awaited<ReturnType<typeof prisma.exportSnapshot.findMany>>[number],
-): ExportSnapshotSummary | null {
+) {
   try {
-    const payload = JSON.parse(snapshot.activityJson) as StoredSnapshotPayload;
-
-    return {
-      id: snapshot.id,
-      createdAt: snapshot.createdAt.toISOString(),
-      selectedDays: payload.selectedDays,
-      activityCount: payload.activityCount,
-      rangeLabel: payload.rangeLabel,
-      hasAthleteZones: Boolean(payload.athleteZones),
-      hasPowerData: payload.activities.some(
-        (activity) =>
-          activity.averageWatts !== null ||
-          activity.weightedAverageWatts !== null ||
-          activity.maxWatts !== null,
-      ),
-    };
+    return JSON.parse(snapshot.activityJson) as StoredSnapshotPayload;
   } catch {
     return null;
   }
+}
+
+function toSnapshotSummary(
+  snapshot: Awaited<ReturnType<typeof prisma.exportSnapshot.findMany>>[number],
+): ExportSnapshotSummary | null {
+  const payload = parseStoredSnapshotPayload(snapshot);
+  if (!payload) {
+    return null;
+  }
+
+  return {
+    id: snapshot.id,
+    createdAt: snapshot.createdAt.toISOString(),
+    selectedDays: payload.selectedDays,
+    activityCount: payload.activityCount,
+    rangeLabel: payload.rangeLabel,
+    hasAthleteZones: Boolean(payload.athleteZones),
+    hasPowerData: payload.activities.some(
+      (activity) =>
+        activity.averageWatts !== null ||
+        activity.weightedAverageWatts !== null ||
+        activity.maxWatts !== null,
+    ),
+  };
 }
 
 async function loadRecentSnapshots(limit = 6) {
@@ -499,7 +649,30 @@ async function loadRecentSnapshots(limit = 6) {
     take: limit,
   });
 
-  return snapshots.map(toSnapshotSummary).filter((snapshot): snapshot is ExportSnapshotSummary => Boolean(snapshot));
+  return snapshots
+    .map(toSnapshotSummary)
+    .filter((snapshot): snapshot is ExportSnapshotSummary => Boolean(snapshot));
+}
+
+async function loadLatestSnapshotForCompare() {
+  const snapshot = await prisma.exportSnapshot.findFirst({
+    orderBy: { createdAt: "desc" },
+  });
+  if (!snapshot) {
+    return null;
+  }
+
+  const payload = parseStoredSnapshotPayload(snapshot);
+  const summary = toSnapshotSummary(snapshot);
+
+  if (!payload || !summary) {
+    return null;
+  }
+
+  return {
+    summary,
+    payload,
+  };
 }
 
 async function saveExportSnapshot(payload: ExportPayload) {
@@ -533,6 +706,7 @@ export function buildExportPayload(
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
   snapshots: ExportSnapshotSummary[],
+  snapshotCompare: SnapshotCompare,
 ): ExportPayload {
   const rangeEnd = new Date().toISOString();
   const rangeStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -549,6 +723,7 @@ export function buildExportPayload(
     requiredScopes,
     missingScopes,
     snapshots,
+    snapshotCompare,
   );
 }
 
@@ -559,12 +734,15 @@ export async function buildAndStoreExportPayload(
   grantedScopes: string[],
 ) {
   const previousSnapshots = await loadRecentSnapshots();
+  const latestSnapshotForCompare = await loadLatestSnapshotForCompare();
+  const snapshotCompare = buildSnapshotCompare(activities, latestSnapshotForCompare);
   const payload = buildExportPayload(
     activities,
     days,
     athleteZones,
     grantedScopes,
     previousSnapshots,
+    snapshotCompare,
   );
 
   const latestSnapshot = await saveExportSnapshot(payload);
