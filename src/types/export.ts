@@ -24,6 +24,22 @@ export type AthleteZones = {
   powerZones: AthleteZoneRange[];
 };
 
+export type ScopeRequirement = {
+  scope: string;
+  granted: boolean;
+  required: boolean;
+};
+
+export type ExportSnapshotSummary = {
+  id: string;
+  createdAt: string;
+  selectedDays: number;
+  activityCount: number;
+  rangeLabel: string;
+  hasAthleteZones: boolean;
+  hasPowerData: boolean;
+};
+
 export type NormalizedActivity = {
   id: number;
   name: string;
@@ -62,4 +78,6 @@ export type ExportPayload = {
   activityCount: number;
   activities: NormalizedActivity[];
   chatGptPrompt: string;
+  requiredScopes: ScopeRequirement[];
+  snapshots: ExportSnapshotSummary[];
 };

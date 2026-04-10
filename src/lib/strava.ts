@@ -1,7 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { createExportPayload } from "@/lib/export-format";
-import type { ActivityZone, AthleteZones, ExportPayload, NormalizedActivity } from "@/types/export";
+import type {
+  ActivityZone,
+  AthleteZones,
+  ExportPayload,
+  ExportSnapshotSummary,
+  NormalizedActivity,
+} from "@/types/export";
 import type {
   StravaActivity,
   StravaActivityZone,
@@ -457,11 +463,76 @@ export async function syncAndLoadActivities(days: number) {
   };
 }
 
+type StoredSnapshotPayload = Pick<
+  ExportPayload,
+  "selectedDays" | "activityCount" | "rangeLabel" | "athleteZones" | "activities"
+>;
+
+function toSnapshotSummary(
+  snapshot: Awaited<ReturnType<typeof prisma.exportSnapshot.findMany>>[number],
+): ExportSnapshotSummary | null {
+  try {
+    const payload = JSON.parse(snapshot.activityJson) as StoredSnapshotPayload;
+
+    return {
+      id: snapshot.id,
+      createdAt: snapshot.createdAt.toISOString(),
+      selectedDays: payload.selectedDays,
+      activityCount: payload.activityCount,
+      rangeLabel: payload.rangeLabel,
+      hasAthleteZones: Boolean(payload.athleteZones),
+      hasPowerData: payload.activities.some(
+        (activity) =>
+          activity.averageWatts !== null ||
+          activity.weightedAverageWatts !== null ||
+          activity.maxWatts !== null,
+      ),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function loadRecentSnapshots(limit = 6) {
+  const snapshots = await prisma.exportSnapshot.findMany({
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+
+  return snapshots.map(toSnapshotSummary).filter((snapshot): snapshot is ExportSnapshotSummary => Boolean(snapshot));
+}
+
+async function saveExportSnapshot(payload: ExportPayload) {
+  const snapshot = await prisma.exportSnapshot.create({
+    data: {
+      rangeStart: new Date(payload.rangeStart),
+      rangeEnd: new Date(payload.rangeEnd),
+      activityJson: JSON.stringify(payload),
+    },
+  });
+
+  return {
+    id: snapshot.id,
+    createdAt: snapshot.createdAt.toISOString(),
+    selectedDays: payload.selectedDays,
+    activityCount: payload.activityCount,
+    rangeLabel: payload.rangeLabel,
+    hasAthleteZones: Boolean(payload.athleteZones),
+    hasPowerData: payload.activities.some(
+      (activity) =>
+        activity.averageWatts !== null ||
+        activity.weightedAverageWatts !== null ||
+        activity.maxWatts !== null,
+    ),
+  } satisfies ExportSnapshotSummary;
+}
+
 export function buildExportPayload(
   activities: NormalizedActivity[],
   days: number,
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
+  snapshots: ExportSnapshotSummary[],
 ): ExportPayload {
   const rangeEnd = new Date().toISOString();
   const rangeStart = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
@@ -475,6 +546,31 @@ export function buildExportPayload(
     days,
     athleteZones,
     grantedScopes,
+    requiredScopes,
     missingScopes,
+    snapshots,
   );
+}
+
+export async function buildAndStoreExportPayload(
+  activities: NormalizedActivity[],
+  days: number,
+  athleteZones: AthleteZones | null,
+  grantedScopes: string[],
+) {
+  const previousSnapshots = await loadRecentSnapshots();
+  const payload = buildExportPayload(
+    activities,
+    days,
+    athleteZones,
+    grantedScopes,
+    previousSnapshots,
+  );
+
+  const latestSnapshot = await saveExportSnapshot(payload);
+
+  return {
+    ...payload,
+    snapshots: [latestSnapshot, ...previousSnapshots].slice(0, 6),
+  } satisfies ExportPayload;
 }

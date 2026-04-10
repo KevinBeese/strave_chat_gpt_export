@@ -66,7 +66,7 @@ export default async function DashboardPage({
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-10 md:px-10">
       <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
         <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)] backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.24em] text-black/55">
+          <p className="text-sm uppercase tracking-[0.14em] text-black/55">
             Verbindung
           </p>
           <h1 className="mt-4 text-3xl font-semibold tracking-tight">
@@ -77,18 +77,33 @@ export default async function DashboardPage({
             OAuth-Daten hinterlegt sind, kannst du von hier die letzten 7 Tage
             exportieren.
           </p>
-          <div className="mt-6 rounded-3xl border border-[color:var(--border)] bg-white/80 p-5">
-            <p className="text-sm font-medium text-black/60">Status</p>
-            <p className="mt-2 text-lg font-semibold">
-              {connection.connected ? "Mit Strava verbunden" : "Noch nicht verbunden"}
-            </p>
+          <div className="mt-6 rounded-3xl border border-[color:var(--border)] bg-white/85 p-5 shadow-[0_10px_30px_rgba(29,27,22,0.05)]">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-medium text-black/60">Status</p>
+                <p className="mt-2 text-lg font-semibold">
+                  {connection.connected ? "Mit Strava verbunden" : "Noch nicht verbunden"}
+                </p>
+              </div>
+              <span
+                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] ${
+                  connection.hasProfileReadAll
+                    ? "bg-emerald-100 text-emerald-700"
+                    : "bg-amber-100 text-amber-800"
+                }`}
+              >
+                {connection.hasProfileReadAll
+                  ? "profile:read_all aktiv"
+                  : "profile:read_all fehlt"}
+              </span>
+            </div>
             <p className="mt-2 text-sm leading-6 text-black/68">
               {connection.connected
                 ? `Verbundener Athlet: ${connection.label}`
                 : "Lege zuerst die Strava-Umgebungsvariablen an und verbinde dann deinen Account."}
             </p>
             {connection.athleteId ? (
-              <p className="mt-2 text-xs uppercase tracking-[0.14em] text-black/42">
+              <p className="mt-2 text-xs uppercase tracking-[0.08em] text-black/42">
                 Strava Athlete ID: {connection.athleteId}
               </p>
             ) : null}
@@ -98,15 +113,36 @@ export default async function DashboardPage({
               </p>
             ) : null}
             {connection.grantedScopes.length > 0 ? (
-              <p className="mt-2 text-sm leading-6 text-black/58">
-                Scopes: {connection.grantedScopes.join(", ")}
-              </p>
+              <div className="mt-4">
+                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-black/42">
+                  OAuth-Scopes
+                </p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {connection.grantedScopes.map((scope) => (
+                    <span
+                      key={scope}
+                      className="rounded-full bg-black/5 px-3 py-1 text-xs font-medium text-black/62"
+                    >
+                      {scope}
+                    </span>
+                  ))}
+                </div>
+              </div>
             ) : null}
             {!connection.hasProfileReadAll && connection.connected ? (
-              <p className="mt-2 text-sm leading-6 text-[color:var(--accent)]">
-                Fuer Profil-Zonen wie Herzfrequenz- und Power-Bereiche bitte die
-                Strava-Verbindung einmal neu autorisieren.
-              </p>
+              <div className="mt-4 rounded-2xl border border-[color:var(--accent)]/18 bg-[color:var(--accent)]/8 p-4 text-sm leading-6 text-[color:var(--accent)]">
+                <p className="font-semibold">Profilzonen werden aktuell nicht geladen.</p>
+                <p className="mt-1">
+                  Fuer Herzfrequenz- und Power-Bereiche bitte die Strava-Verbindung
+                  einmal neu autorisieren, damit `athlete/zones` sauber genutzt werden kann.
+                </p>
+              </div>
+            ) : null}
+            {connection.hasProfileReadAll && connection.connected ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-700">
+                `profile:read_all` ist gespeichert und wird beim Export fuer `athlete/zones`
+                verwendet, sobald Strava Zonen zurueckliefert.
+              </div>
             ) : null}
           </div>
           {statusMessage ? (

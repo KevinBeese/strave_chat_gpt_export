@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildExportPayload, syncAndLoadActivities } from "@/lib/strava";
+import { buildAndStoreExportPayload, syncAndLoadActivities } from "@/lib/strava";
 
 const allowedDays = new Set([7, 14, 30]);
 
@@ -17,7 +17,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const { activities, athleteZones, grantedScopes } = await syncAndLoadActivities(days);
-    const payload = buildExportPayload(activities, days, athleteZones, grantedScopes);
+    const payload = await buildAndStoreExportPayload(
+      activities,
+      days,
+      athleteZones,
+      grantedScopes,
+    );
     return NextResponse.json(payload);
   } catch (error) {
     const message =
