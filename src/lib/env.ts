@@ -7,6 +7,8 @@ const envSchema = z.object({
   STRAVA_CLIENT_ID: z.string().min(1),
   STRAVA_CLIENT_SECRET: z.string().min(1),
   STRAVA_REDIRECT_URI: z.string().url(),
+  STRAVA_RETRY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(8).default(4),
+  STRAVA_RETRY_BASE_DELAY_MS: z.coerce.number().int().min(100).max(30_000).default(500),
 });
 
 export function getEnv() {
@@ -17,5 +19,7 @@ export function getEnv() {
     STRAVA_CLIENT_ID: process.env.STRAVA_CLIENT_ID,
     STRAVA_CLIENT_SECRET: process.env.STRAVA_CLIENT_SECRET,
     STRAVA_REDIRECT_URI: process.env.STRAVA_REDIRECT_URI,
+    STRAVA_RETRY_MAX_ATTEMPTS: process.env.STRAVA_RETRY_MAX_ATTEMPTS,
+    STRAVA_RETRY_BASE_DELAY_MS: process.env.STRAVA_RETRY_BASE_DELAY_MS,
   });
 }

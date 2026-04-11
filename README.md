@@ -37,6 +37,9 @@ cp .env.example .env.local
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URI`
+- Optional fuer robustere API-Aufrufe:
+  - `STRAVA_RETRY_MAX_ATTEMPTS` (Default `4`)
+  - `STRAVA_RETRY_BASE_DELAY_MS` (Default `500`)
 - `DATABASE_URL` kann auf `file:./dev.db` bleiben
 - Als Authorization Callback Domain in Strava fuer den lokalen Test: `localhost`
 - Als Callback URL in Strava: `http://localhost:3000/api/strava/callback`

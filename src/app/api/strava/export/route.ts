@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { buildAndStoreExportPayload, syncAndLoadActivities } from "@/lib/strava";
+import {
+  StravaApiError,
+  buildAndStoreExportPayload,
+  syncAndLoadActivities,
+} from "@/lib/strava";
 
 const allowedDays = new Set([7, 14, 30]);
 
@@ -25,6 +29,24 @@ export async function GET(request: NextRequest) {
     );
     return NextResponse.json(payload);
   } catch (error) {
+    if (error instanceof StravaApiError) {
+      const retryAfter = error.retryAfterSeconds ?? 60;
+      return NextResponse.json(
+        {
+          error: error.message,
+          code: error.isRateLimit ? "strava_rate_limit" : "strava_api_error",
+          retryAfterSeconds: retryAfter,
+          rateLimit: error.rateLimit,
+        },
+        {
+          status: error.status === 429 ? 429 : 502,
+          headers: {
+            "Retry-After": String(retryAfter),
+          },
+        },
+      );
+    }
+
     const message =
       error instanceof Error ? error.message : "Unable to export Strava activities.";
     return NextResponse.json({ error: message }, { status: 500 });
