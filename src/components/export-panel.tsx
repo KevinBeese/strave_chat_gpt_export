@@ -3,7 +3,11 @@
 import { useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
-import { SNAPSHOT_TREND_CONFIDENCE_BANDS } from "@/lib/snapshot-config";
+import {
+  SNAPSHOT_FORMULA_DEFAULT_INTENSITY,
+  SNAPSHOT_FORMULA_WEIGHT_PROFILES,
+  SNAPSHOT_TREND_CONFIDENCE_BANDS,
+} from "@/lib/snapshot-config";
 import type {
   ActivityZone,
   AthleteZoneRange,
@@ -91,20 +95,55 @@ function formatSignedPercent(value: number) {
   return `${sign}${Math.round(value * 10) / 10} %`;
 }
 
+function clamp(value: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, value));
+}
+
+type TrendWindowDisplay = {
+  valueLabel: string;
+  confidenceLevel: "low" | "medium" | "high";
+  confidenceLabel: string;
+};
+
+function getTrendConfidenceTone(level: TrendWindowDisplay["confidenceLevel"]) {
+  if (level === "high") {
+    return "border-emerald-200 bg-emerald-50 text-emerald-700";
+  }
+
+  if (level === "medium") {
+    return "border-amber-200 bg-amber-50 text-amber-700";
+  }
+
+  return "border-rose-200 bg-rose-50 text-rose-700";
+}
+
+function compactConfidenceLabel(label: string) {
+  return label.replace("Trend Confidence: ", "");
+}
+
 function formatTrendWindow(
   days: number,
   delta: number | null,
   deltaPercent: number | null,
+  confidenceLevel: TrendWindowDisplay["confidenceLevel"],
   confidenceLabel: string,
   unit = "",
-) {
+): TrendWindowDisplay {
   if (delta === null) {
-    return `${days}d n/a · ${confidenceLabel}`;
+    return {
+      valueLabel: `${days}d n/a`,
+      confidenceLevel,
+      confidenceLabel,
+    };
   }
 
   const deltaLabel = formatSignedNumber(delta, unit);
   const percentLabel = deltaPercent === null ? "" : ` (${formatSignedPercent(deltaPercent)})`;
-  return `${days}d ${deltaLabel}${percentLabel} · ${confidenceLabel}`;
+  return {
+    valueLabel: `${days}d ${deltaLabel}${percentLabel}`,
+    confidenceLevel,
+    confidenceLabel,
+  };
 }
 
 function formatOpenEndedRange(min: number, max: number) {
@@ -155,6 +194,89 @@ function getPowerZoneLabel(min: number, max: number) {
 
 function formatZoneRangeLabel(range: AthleteZoneRange, index: number) {
   return `Z${index + 1} ${formatOpenEndedRange(range.min, range.max)}`;
+}
+
+function getActivityZoneIntensity(activity: NormalizedActivity, type: "heartrate" | "power") {
+  const zone = activity.zones.find((entry) => entry.type === type);
+  if (!zone || zone.distributionBuckets.length === 0) {
+    return null;
+  }
+
+  let totalSeconds = 0;
+  let weightedSeconds = 0;
+
+  zone.distributionBuckets.forEach((bucket, index) => {
+    totalSeconds += bucket.time;
+    weightedSeconds += bucket.time * (index + 1);
+  });
+
+  if (totalSeconds <= 0) {
+    return null;
+  }
+
+  return weightedSeconds / (totalSeconds * zone.distributionBuckets.length);
+}
+
+function getActivityWeightProfile(activity: NormalizedActivity) {
+  const normalizedType = activity.type.toLowerCase();
+  const normalizedClassification = activity.classification.toLowerCase();
+
+  if (normalizedType.includes("ride")) {
+    return SNAPSHOT_FORMULA_WEIGHT_PROFILES.ride;
+  }
+
+  if (normalizedType.includes("run")) {
+    return SNAPSHOT_FORMULA_WEIGHT_PROFILES.run;
+  }
+
+  if (
+    normalizedType.includes("workout") ||
+    normalizedType.includes("weighttraining") ||
+    normalizedClassification.includes("workout") ||
+    normalizedClassification.includes("strength") ||
+    normalizedClassification.includes("functional")
+  ) {
+    return SNAPSHOT_FORMULA_WEIGHT_PROFILES.workout;
+  }
+
+  return SNAPSHOT_FORMULA_WEIGHT_PROFILES.default;
+}
+
+function getActivityIntensityRatio(activity: NormalizedActivity) {
+  const heartRateIntensity = getActivityZoneIntensity(activity, "heartrate");
+  const powerIntensity = getActivityZoneIntensity(activity, "power");
+  const weightProfile = getActivityWeightProfile(activity);
+
+  if (heartRateIntensity !== null && powerIntensity !== null) {
+    return clamp(
+      heartRateIntensity * weightProfile.hrWeight + powerIntensity * weightProfile.powerWeight,
+      0,
+      1,
+    );
+  }
+
+  if (heartRateIntensity !== null) {
+    return clamp(heartRateIntensity, 0, 1);
+  }
+
+  if (powerIntensity !== null) {
+    return clamp(powerIntensity, 0, 1);
+  }
+
+  if (activity.averageHeartrate) {
+    return clamp(activity.averageHeartrate / 180, 0, 1);
+  }
+
+  if (activity.averageWatts && activity.maxWatts) {
+    return clamp(activity.averageWatts / activity.maxWatts, 0, 1);
+  }
+
+  return SNAPSHOT_FORMULA_DEFAULT_INTENSITY;
+}
+
+function getActivitySessionLoad(activity: NormalizedActivity) {
+  const intensityPercent = getActivityIntensityRatio(activity) * 100;
+  return (activity.movingTimeSeconds / 3600) * intensityPercent;
 }
 
 function summarizeZoneDistribution(
@@ -537,7 +659,7 @@ function SnapshotDeltaCard({
   deltaValue: string | null;
   deltaPercent: string | null;
   trendValue: string | null;
-  trendWindows: string[];
+  trendWindows: TrendWindowDisplay[];
 }) {
   return (
     <article className="rounded-2xl border border-black/8 bg-black/[0.03] p-4">
@@ -558,9 +680,26 @@ function SnapshotDeltaCard({
         <p className="mt-2 text-xs leading-5 text-black/62">3-Snapshot-Mittel: {trendValue}</p>
       ) : null}
       {trendWindows.length > 0 ? (
-        <p className="mt-2 text-xs leading-5 text-black/58">
-          Trend: {trendWindows.join(" · ")}
-        </p>
+        <div className="mt-2">
+          <p className="text-xs leading-5 text-black/58">Trend:</p>
+          <div className="mt-1 flex flex-wrap gap-2">
+            {trendWindows.map((window) => (
+              <div
+                key={`${window.valueLabel}-${window.confidenceLabel}`}
+                className="inline-flex items-center gap-2 rounded-full border border-black/10 bg-white/90 px-2 py-1 text-[11px] leading-5 text-black/68"
+              >
+                <span>{window.valueLabel}</span>
+                <span
+                  className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.06em] ${getTrendConfidenceTone(
+                    window.confidenceLevel,
+                  )}`}
+                >
+                  {compactConfidenceLabel(window.confidenceLabel)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
       ) : null}
     </article>
   );
@@ -572,6 +711,8 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
   const averagePower = formatPower(activity.averageWatts);
   const weightedPower = formatPower(activity.weightedAverageWatts);
   const maxPower = formatPower(activity.maxWatts);
+  const sessionLoad = Math.round(getActivitySessionLoad(activity) * 10) / 10;
+  const sessionIntensity = Math.round(getActivityIntensityRatio(activity) * 1000) / 10;
 
   return (
     <article className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/90 p-5 shadow-[0_10px_36px_rgba(29,27,22,0.06)]">
@@ -590,8 +731,15 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
             {activity.analysisLabel} · {formatDate(activity.startDate)}
           </p>
         </div>
-        <div className="rounded-full border border-black/8 bg-[#fff7ec] px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-black/56">
-          {formatDuration(activity.movingTimeSeconds)}
+        <div className="flex flex-col items-end gap-2">
+          <div className="rounded-full border border-black/8 bg-[#fff7ec] px-3 py-2 text-xs font-semibold uppercase tracking-[0.08em] text-black/56">
+            {formatDuration(activity.movingTimeSeconds)}
+          </div>
+          <div className="rounded-xl border border-[color:var(--accent)]/18 bg-[color:var(--accent)]/8 px-3 py-2">
+            <p className="text-sm font-semibold uppercase tracking-[0.06em] text-[color:var(--accent)]">
+              SL {sessionLoad}
+            </p>
+          </div>
         </div>
       </div>
 
@@ -610,6 +758,7 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
           />
         )}
         <ActivityMetric label="Bewegungszeit" value={formatDuration(activity.movingTimeSeconds)} />
+        <ActivityMetric label="Session Int." value={`${sessionIntensity} %`} />
         {activity.averageHeartrate ? (
           <ActivityMetric
             label="Oe Puls"
@@ -1003,6 +1152,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                               window.days,
                               window.delta,
                               window.deltaPercent,
+                              window.confidenceLevel,
                               window.confidenceLabel,
                             ),
                           )
@@ -1043,6 +1193,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                               window.days,
                               window.delta,
                               window.deltaPercent,
+                              window.confidenceLevel,
                               window.confidenceLabel,
                               " pp",
                             ),
@@ -1094,6 +1245,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                                 window.days,
                                 window.delta === null ? null : Math.round(window.delta / 60),
                                 window.deltaPercent,
+                                window.confidenceLevel,
                                 window.confidenceLabel,
                                 " min",
                               ),
@@ -1165,11 +1317,21 @@ export function ExportPanel({ connected }: { connected: boolean }) {
               )}
             </div>
 
-            <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/88 p-5">
-              <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-black/60">
-                Exporthistorie
-              </h3>
-              <div className="mt-4 space-y-3">
+            <details className="group rounded-[1.5rem] border border-[color:var(--border)] bg-white/88 p-5">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold uppercase tracking-[0.1em] text-black/60">
+                    Exporthistorie
+                  </h3>
+                  <p className="mt-2 text-sm text-black/52">
+                    {data.snapshots.length} Snapshot{data.snapshots.length === 1 ? "" : "s"}
+                  </p>
+                </div>
+                <span className="text-xs font-medium uppercase tracking-[0.1em] text-black/42 transition group-open:rotate-180">
+                  ▼
+                </span>
+              </summary>
+              <div className="mt-4 space-y-3 border-t border-black/8 pt-4">
                 {data.snapshots.length > 0 ? (
                   data.snapshots.map((snapshot, index) => (
                     <div
@@ -1198,7 +1360,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                   <p className="text-sm text-black/58">Noch keine Snapshots vorhanden.</p>
                 )}
               </div>
-            </div>
+            </details>
           </div>
 
           <div className="grid gap-4">
