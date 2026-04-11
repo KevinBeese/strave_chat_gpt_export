@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { getEnv } from "@/lib/env";
 import { createExportPayload } from "@/lib/export-format";
+import { decryptToken, encryptToken } from "@/lib/token-crypto";
 import {
   getTrendConfidence,
   SNAPSHOT_FORMULA_DEFAULT_INTENSITY,
@@ -31,9 +32,43 @@ import type {
   TokenUpsertInput,
 } from "@/types/strava";
 
-function assertOk(response: Response, message: string) {
-  if (!response.ok) {
-    throw new Error(message);
+const STRAVA_API_BASE_URL = "https://www.strava.com/api/v3";
+const STRAVA_OAUTH_URL = "https://www.strava.com/oauth/token";
+const TOKEN_REFRESH_SAFETY_WINDOW_MS = 10 * 60 * 1000;
+
+type RateLimitInfo = {
+  limit: string | null;
+  usage: string | null;
+};
+
+type RequestRetryOptions = {
+  silentOnExhaustedRetries?: boolean;
+};
+
+export class StravaApiError extends Error {
+  status: number;
+  retryAfterSeconds: number | null;
+  isRateLimit: boolean;
+  rateLimit: RateLimitInfo;
+
+  constructor(
+    message: string,
+    status: number,
+    options?: {
+      retryAfterSeconds?: number | null;
+      isRateLimit?: boolean;
+      rateLimit?: RateLimitInfo;
+    },
+  ) {
+    super(message);
+    this.name = "StravaApiError";
+    this.status = status;
+    this.retryAfterSeconds = options?.retryAfterSeconds ?? null;
+    this.isRateLimit = options?.isRateLimit ?? false;
+    this.rateLimit = options?.rateLimit ?? {
+      limit: null,
+      usage: null,
+    };
   }
 }
 
@@ -119,9 +154,106 @@ function classifyActivity(type: string, name: string) {
   };
 }
 
+function getRateLimitInfo(response: Response): RateLimitInfo {
+  return {
+    limit: response.headers.get("x-ratelimit-limit"),
+    usage: response.headers.get("x-ratelimit-usage"),
+  };
+}
+
+function parseRetryAfterSeconds(response: Response) {
+  const header = response.headers.get("retry-after");
+  if (!header) {
+    return null;
+  }
+
+  const seconds = Number(header);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.ceil(seconds);
+  }
+
+  const at = Date.parse(header);
+  if (!Number.isNaN(at)) {
+    return Math.max(0, Math.ceil((at - Date.now()) / 1000));
+  }
+
+  return null;
+}
+
+function getRetryDelayMs(
+  attempt: number,
+  baseDelayMs: number,
+  retryAfterSeconds: number | null,
+) {
+  if (retryAfterSeconds !== null) {
+    return Math.max(baseDelayMs, retryAfterSeconds * 1000);
+  }
+
+  const exponential = baseDelayMs * 2 ** attempt;
+  const jitter = Math.floor(Math.random() * Math.max(100, Math.floor(baseDelayMs / 2)));
+  return Math.min(30_000, exponential + jitter);
+}
+
+function sleep(ms: number) {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function requestWithRetry(
+  url: string,
+  init: RequestInit,
+  options?: RequestRetryOptions,
+) {
+  const env = getEnv();
+  const maxAttempts = env.STRAVA_RETRY_MAX_ATTEMPTS;
+  const baseDelayMs = env.STRAVA_RETRY_BASE_DELAY_MS;
+  const method = (init.method ?? "GET").toUpperCase();
+
+  let lastNetworkError: unknown = null;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(url, init);
+      if (response.ok) {
+        return response;
+      }
+
+      const status = response.status;
+      const retryAfterSeconds = parseRetryAfterSeconds(response);
+      const retryableStatus = status === 429 || status >= 500;
+      const isLastAttempt = attempt === maxAttempts - 1;
+
+      if (!retryableStatus || isLastAttempt) {
+        return response;
+      }
+
+      const delayMs = getRetryDelayMs(attempt, baseDelayMs, retryAfterSeconds);
+      await sleep(delayMs);
+    } catch (error) {
+      lastNetworkError = error;
+      const isLastAttempt = attempt === maxAttempts - 1;
+      if (isLastAttempt) {
+        break;
+      }
+
+      const delayMs = getRetryDelayMs(attempt, baseDelayMs, null);
+      await sleep(delayMs);
+    }
+  }
+
+  if (!options?.silentOnExhaustedRetries) {
+    const networkMessage =
+      lastNetworkError instanceof Error ? lastNetworkError.message : "Unknown network error";
+    throw new Error(`Strava ${method} request failed after retries: ${networkMessage}`);
+  }
+
+  return null;
+}
+
 export async function exchangeCodeForToken(code: string) {
   const env = getEnv();
-  const response = await fetch("https://www.strava.com/oauth/token", {
+  const response = await requestWithRetry(STRAVA_OAUTH_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -134,14 +266,16 @@ export async function exchangeCodeForToken(code: string) {
     }),
   });
 
-  assertOk(response, "Unable to complete Strava OAuth exchange.");
+  if (!response) {
+    throw new Error("Unable to complete Strava OAuth exchange.");
+  }
 
   return (await response.json()) as StravaTokenResponse;
 }
 
 export async function refreshToken(refreshToken: string) {
   const env = getEnv();
-  const response = await fetch("https://www.strava.com/oauth/token", {
+  const response = await requestWithRetry(STRAVA_OAUTH_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -154,7 +288,9 @@ export async function refreshToken(refreshToken: string) {
     }),
   });
 
-  assertOk(response, "Unable to refresh Strava token.");
+  if (!response) {
+    throw new Error("Unable to refresh Strava token.");
+  }
 
   return (await response.json()) as StravaTokenResponse;
 }
@@ -174,16 +310,16 @@ export async function upsertStravaConnection(payload: TokenUpsertInput) {
     },
     update: {
       athleteName: `${payload.athlete.firstname} ${payload.athlete.lastname}`.trim(),
-      accessToken: payload.access_token,
-      refreshToken: payload.refresh_token,
+      accessToken: encryptToken(payload.access_token),
+      refreshToken: encryptToken(payload.refresh_token),
       expiresAt: new Date(payload.expires_at * 1000),
       scope: payload.scope,
     },
     create: {
       athleteId: String(payload.athlete.id),
       athleteName: `${payload.athlete.firstname} ${payload.athlete.lastname}`.trim(),
-      accessToken: payload.access_token,
-      refreshToken: payload.refresh_token,
+      accessToken: encryptToken(payload.access_token),
+      refreshToken: encryptToken(payload.refresh_token),
       expiresAt: new Date(payload.expires_at * 1000),
       scope: payload.scope,
     },
@@ -206,19 +342,44 @@ async function getCurrentConnection() {
   return connection;
 }
 
+async function decryptConnectionTokens(
+  connection: Awaited<ReturnType<typeof getCurrentConnection>>,
+) {
+  const accessToken = decryptToken(connection.accessToken);
+  const refreshToken = decryptToken(connection.refreshToken);
+
+  if (!accessToken.wasEncrypted || !refreshToken.wasEncrypted) {
+    await prisma.stravaConnection.update({
+      where: {
+        athleteId: connection.athleteId,
+      },
+      data: {
+        accessToken: encryptToken(accessToken.token),
+        refreshToken: encryptToken(refreshToken.token),
+      },
+    });
+  }
+
+  return {
+    accessToken: accessToken.token,
+    refreshToken: refreshToken.token,
+  };
+}
+
 async function getValidAccessToken() {
   const connection = await getCurrentConnection();
+  const decrypted = await decryptConnectionTokens(connection);
   const grantedScopes = parseGrantedScopes(connection.scope);
 
-  if (connection.expiresAt.getTime() > Date.now() + 30_000) {
+  if (connection.expiresAt.getTime() > Date.now() + TOKEN_REFRESH_SAFETY_WINDOW_MS) {
     return {
-      accessToken: connection.accessToken,
+      accessToken: decrypted.accessToken,
       athleteId: connection.athleteId,
       grantedScopes,
     };
   }
 
-  const refreshed = await refreshToken(connection.refreshToken);
+  const refreshed = await refreshToken(decrypted.refreshToken);
   await upsertStravaConnection(refreshed);
   return {
     accessToken: refreshed.access_token,
@@ -260,41 +421,108 @@ function normalizeAthleteZones(zones: StravaAthleteZones | null): AthleteZones |
   };
 }
 
+async function fetchStravaApi<T>(
+  path: string,
+  options?: {
+    accessToken?: string;
+    allowUnauthorizedRetry?: boolean;
+    silentUnauthorized?: boolean;
+  },
+) {
+  const tokenInfo = options?.accessToken
+    ? {
+        accessToken: options.accessToken,
+      }
+    : await getValidAccessToken();
+
+  const response = await requestWithRetry(
+    `${STRAVA_API_BASE_URL}${path}`,
+    {
+      headers: {
+        Authorization: `Bearer ${tokenInfo.accessToken}`,
+      },
+      cache: "no-store",
+    },
+    {
+      silentOnExhaustedRetries: options?.silentUnauthorized,
+    },
+  );
+
+  if (!response) {
+    return null;
+  }
+
+  if (response.status === 401 && options?.allowUnauthorizedRetry !== false) {
+    const connection = await getCurrentConnection();
+    const decrypted = await decryptConnectionTokens(connection);
+    const refreshed = await refreshToken(decrypted.refreshToken);
+    await upsertStravaConnection(refreshed);
+    return fetchStravaApi<T>(path, {
+      accessToken: refreshed.access_token,
+      allowUnauthorizedRetry: false,
+      silentUnauthorized: options?.silentUnauthorized,
+    });
+  }
+
+  if (!response.ok) {
+    const rateLimit = getRateLimitInfo(response);
+    throw new StravaApiError(`Strava API request failed (${response.status}).`, response.status, {
+      retryAfterSeconds: parseRetryAfterSeconds(response),
+      isRateLimit: response.status === 429,
+      rateLimit,
+    });
+  }
+
+  return (await response.json()) as T;
+}
+
 async function fetchAthleteZones(accessToken: string, grantedScopes: string[]) {
   if (!grantedScopes.includes("profile:read_all")) {
     return null;
   }
 
-  const response = await fetch("https://www.strava.com/api/v3/athlete/zones", {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-    cache: "no-store",
-  });
+  try {
+    const zones = await fetchStravaApi<StravaAthleteZones>("/athlete/zones", {
+      accessToken,
+      silentUnauthorized: true,
+    });
 
-  if (!response.ok) {
-    return null;
+    if (!zones) {
+      return null;
+    }
+
+    return normalizeAthleteZones(zones);
+  } catch (error) {
+    if (error instanceof StravaApiError) {
+      if (error.isRateLimit || error.status === 403 || error.status === 404) {
+        return null;
+      }
+    }
+    throw error;
   }
-
-  return normalizeAthleteZones((await response.json()) as StravaAthleteZones);
 }
 
 async function fetchActivityZones(accessToken: string, activityId: number) {
-  const response = await fetch(
-    `https://www.strava.com/api/v3/activities/${activityId}/zones`,
-    {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
+  try {
+    const zones = await fetchStravaApi<StravaActivityZone[]>(
+      `/activities/${activityId}/zones`,
+      {
+        accessToken,
+        silentUnauthorized: true,
       },
-      cache: "no-store",
-    },
-  );
+    );
 
-  if (!response.ok) {
-    return [];
+    if (!zones) {
+      return [];
+    }
+
+    return normalizeActivityZones(zones);
+  } catch (error) {
+    if (error instanceof StravaApiError && (error.status === 403 || error.status === 404)) {
+      return [];
+    }
+    throw error;
   }
-
-  return normalizeActivityZones((await response.json()) as StravaActivityZone[]);
 }
 
 function normalizeActivity(activity: StravaActivity): NormalizedActivity {
@@ -330,22 +558,16 @@ function normalizeActivity(activity: StravaActivity): NormalizedActivity {
 }
 
 export async function getRecentActivities(days: number) {
-  const { accessToken } = await getValidAccessToken();
   const after = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
-
-  const response = await fetch(
-    `https://www.strava.com/api/v3/athlete/activities?after=${after}&per_page=100`,
+  const activities = await fetchStravaApi<StravaActivity[]>(
+    `/athlete/activities?after=${after}&per_page=100`,
     {
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-      },
-      cache: "no-store",
+      allowUnauthorizedRetry: true,
     },
   );
-
-  assertOk(response, "Unable to fetch recent Strava activities.");
-
-  const activities = (await response.json()) as StravaActivity[];
+  if (!activities) {
+    throw new Error("Unable to fetch recent Strava activities.");
+  }
   return activities.map(normalizeActivity);
 }
 
@@ -771,14 +993,52 @@ function buildSnapshotCompare(
   };
 }
 
+async function enrichActivitiesWithZones(
+  activities: NormalizedActivity[],
+  accessToken: string,
+) {
+  const concurrency = 4;
+  const enriched = [...activities];
+  let cursor = 0;
+  let stopReason: "rate_limit" | null = null;
+
+  async function worker() {
+    while (cursor < enriched.length && stopReason === null) {
+      const index = cursor;
+      cursor += 1;
+
+      try {
+        const zones = await fetchActivityZones(accessToken, enriched[index].id);
+        enriched[index] = {
+          ...enriched[index],
+          zones,
+        };
+      } catch (error) {
+        if (error instanceof StravaApiError && error.isRateLimit) {
+          stopReason = "rate_limit";
+          break;
+        }
+        throw error;
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, enriched.length) }, () => worker()),
+  );
+
+  return {
+    activities: enriched,
+    partial: stopReason !== null,
+  };
+}
+
 export async function syncAndLoadActivities(days: number) {
   const { athleteId, accessToken, grantedScopes } = await getValidAccessToken();
   const recentActivities = await getRecentActivities(days);
-  const enrichedActivities = await Promise.all(
-    recentActivities.map(async (activity) => ({
-      ...activity,
-      zones: await fetchActivityZones(accessToken, activity.id),
-    })),
+  const { activities: enrichedActivities } = await enrichActivitiesWithZones(
+    recentActivities,
+    accessToken,
   );
   await upsertActivities(athleteId, enrichedActivities);
   const athleteZones = await fetchAthleteZones(accessToken, grantedScopes);
@@ -945,3 +1205,11 @@ export async function buildAndStoreExportPayload(
     snapshots: [latestSnapshot, ...previousSnapshots].slice(0, 6),
   } satisfies ExportPayload;
 }
+
+export const __testables = {
+  inferFormulaWeightProfile,
+  getActivityIntensity,
+  calculateTrainingMetrics,
+  buildMetricTrend,
+  filterActivitiesBySport,
+};
