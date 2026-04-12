@@ -255,21 +255,31 @@ async function requestWithRetry(
 
 export async function exchangeCodeForToken(code: string) {
   const env = getEnv();
+  const payload = new URLSearchParams({
+    client_id: env.STRAVA_CLIENT_ID,
+    client_secret: env.STRAVA_CLIENT_SECRET,
+    code,
+    redirect_uri: env.STRAVA_REDIRECT_URI,
+    grant_type: "authorization_code",
+  });
+
   const response = await requestWithRetry(STRAVA_OAUTH_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
-      client_id: env.STRAVA_CLIENT_ID,
-      client_secret: env.STRAVA_CLIENT_SECRET,
-      code,
-      grant_type: "authorization_code",
-    }),
+    body: payload.toString(),
   });
 
   if (!response) {
     throw new Error("Unable to complete Strava OAuth exchange.");
+  }
+
+  if (!response.ok) {
+    const details = await response.text();
+    throw new Error(
+      `Strava OAuth token exchange failed (${response.status}): ${details || "No response body"}`,
+    );
   }
 
   return (await response.json()) as StravaTokenResponse;
@@ -277,17 +287,19 @@ export async function exchangeCodeForToken(code: string) {
 
 export async function refreshToken(refreshToken: string) {
   const env = getEnv();
+  const payload = new URLSearchParams({
+    client_id: env.STRAVA_CLIENT_ID,
+    client_secret: env.STRAVA_CLIENT_SECRET,
+    grant_type: "refresh_token",
+    refresh_token: refreshToken,
+  });
+
   const response = await requestWithRetry(STRAVA_OAUTH_URL, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json",
+      "Content-Type": "application/x-www-form-urlencoded",
     },
-    body: JSON.stringify({
-      client_id: env.STRAVA_CLIENT_ID,
-      client_secret: env.STRAVA_CLIENT_SECRET,
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-    }),
+    body: payload.toString(),
   });
 
   if (!response) {
