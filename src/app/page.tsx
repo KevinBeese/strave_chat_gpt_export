@@ -2,9 +2,9 @@ import Link from "next/link";
 
 const features = [
   {
-    title: "Strava Connect",
+    title: "Sessionbasierter Login",
     description:
-      "Melde dich einmal mit Strava an und halte deinen Zugriff lokal auf deinem Rechner.",
+      "Jede Browser-Session bekommt einen eigenen User-Kontext mit separater Strava-Verbindung.",
     symbol: "01",
   },
   {

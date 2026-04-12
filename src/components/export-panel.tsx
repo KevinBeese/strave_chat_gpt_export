@@ -12,6 +12,7 @@ import type {
   ActivityZone,
   AthleteZoneRange,
   ExportPayload,
+  MetricSource,
   NormalizedActivity,
   SnapshotSportFilter,
   ScopeRequirement,
@@ -97,6 +98,39 @@ function formatSignedPercent(value: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function getMetricSourceLabel(source: MetricSource) {
+  if (source === "provider") {
+    return "Strava";
+  }
+
+  if (source === "derived") {
+    return "Fallback";
+  }
+
+  return "Keine Quelle";
+}
+
+function FallbackMetricIcon() {
+  return (
+    <span
+      aria-label="Fallback-Metrik, nicht direkt von Strava geliefert"
+      className="inline-flex h-4 w-4 items-center justify-center rounded-full border border-amber-300 bg-amber-50 text-amber-700"
+      title="Fallback-Metrik, nicht direkt von Strava geliefert"
+    >
+      <svg
+        aria-hidden="true"
+        className="h-2.5 w-2.5"
+        fill="none"
+        viewBox="0 0 16 16"
+        xmlns="http://www.w3.org/2000/svg"
+      >
+        <path d="M8 4.25V8.75" stroke="currentColor" strokeLinecap="round" strokeWidth="1.6" />
+        <circle cx="8" cy="11.35" fill="currentColor" r="1" />
+      </svg>
+    </span>
+  );
 }
 
 type TrendWindowDisplay = {
@@ -585,11 +619,13 @@ function ActivityMetric({
   value,
   tone = "neutral",
   multiline = false,
+  fallback = false,
 }: {
   label: string;
   value: string;
   tone?: "neutral" | "accent";
   multiline?: boolean;
+  fallback?: boolean;
 }) {
   return (
     <div
@@ -599,9 +635,12 @@ function ActivityMetric({
           : "border-black/6 bg-black/[0.035]"
       }`}
     >
-      <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-black/44">
-        {label}
-      </p>
+      <div className="flex items-center gap-1.5">
+        <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-black/44">
+          {label}
+        </p>
+        {fallback ? <FallbackMetricIcon /> : null}
+      </div>
       <p
         className={`mt-2 font-semibold text-black/78 ${
           multiline ? "text-[1.03rem] leading-6" : "text-[1.12rem] leading-6"
@@ -711,8 +750,55 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
   const averagePower = formatPower(activity.averageWatts);
   const weightedPower = formatPower(activity.weightedAverageWatts);
   const maxPower = formatPower(activity.maxWatts);
-  const sessionLoad = Math.round(getActivitySessionLoad(activity) * 10) / 10;
-  const sessionIntensity = Math.round(getActivityIntensityRatio(activity) * 1000) / 10;
+  const sessionLoad =
+    Math.round((activity.resolvedMetrics.load.value ?? getActivitySessionLoad(activity)) * 10) / 10;
+  const sessionIntensity =
+    Math.round(
+      (activity.resolvedMetrics.intensityPercent.value ?? getActivityIntensityRatio(activity) * 100) *
+        10,
+    ) / 10;
+  const loadSource = activity.resolvedMetrics.load.source;
+  const intensitySource = activity.resolvedMetrics.intensityPercent.source;
+  const loadSourceLabel = getMetricSourceLabel(loadSource);
+  const intensitySourceLabel = getMetricSourceLabel(intensitySource);
+  const loadIsFallback = loadSource === "derived";
+  const intensityIsFallback = intensitySource === "derived";
+  const providerIf =
+    activity.providerMetrics.intensityFactor !== null
+      ? `${Math.round(activity.providerMetrics.intensityFactor * 1000) / 1000}`
+      : null;
+  const providerTss =
+    activity.providerMetrics.tss !== null
+      ? `${Math.round(activity.providerMetrics.tss * 10) / 10}`
+      : null;
+  const providerNp =
+    activity.providerMetrics.normalizedPowerWatts !== null
+      ? `${Math.round(activity.providerMetrics.normalizedPowerWatts)} W`
+      : null;
+  const providerVi =
+    activity.providerMetrics.variabilityIndex !== null
+      ? `${Math.round(activity.providerMetrics.variabilityIndex * 100) / 100}`
+      : null;
+  const avgCadence =
+    activity.providerMetrics.averageCadence !== null
+      ? `${Math.round(activity.providerMetrics.averageCadence)} rpm`
+      : null;
+  const maxCadence =
+    activity.providerMetrics.maxCadence !== null
+      ? `${Math.round(activity.providerMetrics.maxCadence)} rpm`
+      : null;
+  const avgTemp =
+    activity.providerMetrics.averageTempC !== null
+      ? `${Math.round(activity.providerMetrics.averageTempC * 10) / 10} C`
+      : null;
+  const minTemp =
+    activity.providerMetrics.minTempC !== null
+      ? `${Math.round(activity.providerMetrics.minTempC * 10) / 10} C`
+      : null;
+  const maxTemp =
+    activity.providerMetrics.maxTempC !== null
+      ? `${Math.round(activity.providerMetrics.maxTempC * 10) / 10} C`
+      : null;
 
   return (
     <article className="rounded-[1.5rem] border border-[color:var(--border)] bg-white/90 p-5 shadow-[0_10px_36px_rgba(29,27,22,0.06)]">
@@ -739,6 +825,12 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
             <p className="text-sm font-semibold uppercase tracking-[0.06em] text-[color:var(--accent)]">
               SL {sessionLoad}
             </p>
+            <div className="mt-0.5 flex items-center justify-center gap-1">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)]/75">
+                {loadSourceLabel}
+              </p>
+              {loadIsFallback ? <FallbackMetricIcon /> : null}
+            </div>
           </div>
         </div>
       </div>
@@ -758,7 +850,15 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
           />
         )}
         <ActivityMetric label="Bewegungszeit" value={formatDuration(activity.movingTimeSeconds)} />
-        <ActivityMetric label="Session Int." value={`${sessionIntensity} %`} />
+        <ActivityMetric
+          fallback={intensityIsFallback}
+          label={`Session Int. (${intensitySourceLabel})`}
+          value={`${sessionIntensity} %`}
+        />
+        {providerTss ? <ActivityMetric label="TSS (Provider)" value={providerTss} /> : null}
+        {providerIf ? <ActivityMetric label="IF (Provider)" value={providerIf} /> : null}
+        {providerNp ? <ActivityMetric label="NP (Provider)" value={providerNp} /> : null}
+        {providerVi ? <ActivityMetric label="VI (Provider)" value={providerVi} /> : null}
         {activity.averageHeartrate ? (
           <ActivityMetric
             label="Oe Puls"
@@ -783,6 +883,11 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
             value={activity.deviceWatts ? "geraetebasiert" : "von Strava geschaetzt"}
           />
         ) : null}
+        {avgCadence ? <ActivityMetric label="Avg Kadenz" value={avgCadence} /> : null}
+        {maxCadence ? <ActivityMetric label="Max Kadenz" value={maxCadence} /> : null}
+        {avgTemp ? <ActivityMetric label="Temp Avg" value={avgTemp} /> : null}
+        {minTemp ? <ActivityMetric label="Temp Min" value={minTemp} /> : null}
+        {maxTemp ? <ActivityMetric label="Temp Max" value={maxTemp} /> : null}
       </div>
 
       <div className="mt-4 grid gap-3 lg:grid-cols-2">
@@ -884,8 +989,12 @@ export function ExportPanel({ connected }: { connected: boolean }) {
         daraus JSON und einen direkt kopierbaren Analyse-Text.
       </p>
       <p className="mt-3 text-sm leading-6 text-black/58">
-        Zonen, Power, Scope-Status und Strava-Beschreibungen werden jetzt direkt
-        in der Uebersicht sichtbar gemacht, damit du den Export schneller prüfen kannst.
+        Provider-Metriken werden bevorzugt verwendet (z. B. TSS/IF/NP, falls vorhanden).
+        Unsere Formel springt nur noch als Fallback ein und wird als Quelle markiert.
+      </p>
+      <p className="mt-2 text-xs leading-5 text-black/52">
+        Das Symbol an einer Metrik bedeutet: dieser Wert kommt aus der Fallback-Berechnung und
+        nicht direkt von Strava.
       </p>
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
@@ -940,7 +1049,11 @@ export function ExportPanel({ connected }: { connected: boolean }) {
         <div className="mt-8 max-w-3xl space-y-3">
           <div className="rounded-xl border border-black/8 bg-black/[0.03] p-3">
             <p className="text-[10px] font-semibold uppercase tracking-[0.1em] text-black/46">
-              Legende Formel-Profile
+              Fallback-Formelprofile
+            </p>
+            <p className="mt-2 text-xs leading-5 text-black/56">
+              Provider first: Wenn Strava/Device Metriken liefert, verwenden wir diese direkt.
+              Die folgenden Profile gelten nur, wenn keine Providerwerte vorliegen.
             </p>
             <p className="mt-2 text-xs leading-5 text-black/62">
               Run: HR {Math.round(snapshotCompare.formula.weightProfiles.run.hrWeight * 100)}% /
@@ -1106,7 +1219,7 @@ export function ExportPanel({ connected }: { connected: boolean }) {
                   {snapshotCompareForSport?.sampleSize ?? 0}
                 </p>
                 <p className="mt-1 text-xs text-black/52">
-                  Formel {snapshotCompare.formula.version}: Run HR{" "}
+                  Fallback-Formel {snapshotCompare.formula.version}: Run HR{" "}
                   {Math.round(snapshotCompare.formula.weightProfiles.run.hrWeight * 100)}% /
                   Power {Math.round(snapshotCompare.formula.weightProfiles.run.powerWeight * 100)}
                   % · Ride HR {Math.round(snapshotCompare.formula.weightProfiles.ride.hrWeight * 100)}

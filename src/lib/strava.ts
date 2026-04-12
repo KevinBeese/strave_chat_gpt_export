@@ -14,6 +14,7 @@ import {
 } from "@/lib/snapshot-config";
 import type {
   ActivityZone,
+  ActivityProviderMetrics,
   AthleteZones,
   ExportPayload,
   ExportSnapshotSummary,
@@ -23,6 +24,7 @@ import type {
   SnapshotMetricDelta,
   SnapshotMetricTrend,
   SnapshotSportFilter,
+  SourcedMetric,
 } from "@/types/export";
 import type {
   StravaActivity,
@@ -295,20 +297,13 @@ export async function refreshToken(refreshToken: string) {
   return (await response.json()) as StravaTokenResponse;
 }
 
-export async function upsertStravaConnection(payload: TokenUpsertInput) {
-  await prisma.stravaConnection.deleteMany({
-    where: {
-      athleteId: {
-        not: String(payload.athlete.id),
-      },
-    },
-  });
-
+export async function upsertStravaConnection(payload: TokenUpsertInput, userId: string) {
   return prisma.stravaConnection.upsert({
     where: {
-      athleteId: String(payload.athlete.id),
+      userId,
     },
     update: {
+      athleteId: String(payload.athlete.id),
       athleteName: `${payload.athlete.firstname} ${payload.athlete.lastname}`.trim(),
       accessToken: encryptToken(payload.access_token),
       refreshToken: encryptToken(payload.refresh_token),
@@ -316,6 +311,7 @@ export async function upsertStravaConnection(payload: TokenUpsertInput) {
       scope: payload.scope,
     },
     create: {
+      userId,
       athleteId: String(payload.athlete.id),
       athleteName: `${payload.athlete.firstname} ${payload.athlete.lastname}`.trim(),
       accessToken: encryptToken(payload.access_token),
@@ -326,13 +322,19 @@ export async function upsertStravaConnection(payload: TokenUpsertInput) {
   });
 }
 
-export async function disconnectStravaConnection() {
-  await prisma.stravaConnection.deleteMany();
+export async function disconnectStravaConnection(userId: string) {
+  await prisma.stravaConnection.deleteMany({
+    where: {
+      userId,
+    },
+  });
 }
 
-async function getCurrentConnection() {
-  const connection = await prisma.stravaConnection.findFirst({
-    orderBy: { updatedAt: "desc" },
+async function getCurrentConnection(userId: string) {
+  const connection = await prisma.stravaConnection.findUnique({
+    where: {
+      userId,
+    },
   });
 
   if (!connection) {
@@ -351,7 +353,7 @@ async function decryptConnectionTokens(
   if (!accessToken.wasEncrypted || !refreshToken.wasEncrypted) {
     await prisma.stravaConnection.update({
       where: {
-        athleteId: connection.athleteId,
+        id: connection.id,
       },
       data: {
         accessToken: encryptToken(accessToken.token),
@@ -366,8 +368,8 @@ async function decryptConnectionTokens(
   };
 }
 
-async function getValidAccessToken() {
-  const connection = await getCurrentConnection();
+async function getValidAccessToken(userId: string) {
+  const connection = await getCurrentConnection(userId);
   const decrypted = await decryptConnectionTokens(connection);
   const grantedScopes = parseGrantedScopes(connection.scope);
 
@@ -380,7 +382,7 @@ async function getValidAccessToken() {
   }
 
   const refreshed = await refreshToken(decrypted.refreshToken);
-  await upsertStravaConnection(refreshed);
+  await upsertStravaConnection(refreshed, userId);
   return {
     accessToken: refreshed.access_token,
     athleteId: String(refreshed.athlete.id),
@@ -424,16 +426,22 @@ function normalizeAthleteZones(zones: StravaAthleteZones | null): AthleteZones |
 async function fetchStravaApi<T>(
   path: string,
   options?: {
+    userId?: string;
     accessToken?: string;
     allowUnauthorizedRetry?: boolean;
     silentUnauthorized?: boolean;
   },
 ) {
+  if (!options?.accessToken && !options?.userId) {
+    throw new Error("Missing user context for Strava API call.");
+  }
+
+  const userId = options?.userId;
   const tokenInfo = options?.accessToken
     ? {
         accessToken: options.accessToken,
       }
-    : await getValidAccessToken();
+    : await getValidAccessToken(userId!);
 
   const response = await requestWithRetry(
     `${STRAVA_API_BASE_URL}${path}`,
@@ -453,11 +461,16 @@ async function fetchStravaApi<T>(
   }
 
   if (response.status === 401 && options?.allowUnauthorizedRetry !== false) {
-    const connection = await getCurrentConnection();
+    if (!options?.userId) {
+      throw new Error("Missing user context for Strava token refresh.");
+    }
+
+    const connection = await getCurrentConnection(options.userId);
     const decrypted = await decryptConnectionTokens(connection);
     const refreshed = await refreshToken(decrypted.refreshToken);
-    await upsertStravaConnection(refreshed);
+    await upsertStravaConnection(refreshed, options.userId);
     return fetchStravaApi<T>(path, {
+      userId: options.userId,
       accessToken: refreshed.access_token,
       allowUnauthorizedRetry: false,
       silentUnauthorized: options?.silentUnauthorized,
@@ -484,6 +497,7 @@ async function fetchAthleteZones(accessToken: string, grantedScopes: string[]) {
   try {
     const zones = await fetchStravaApi<StravaAthleteZones>("/athlete/zones", {
       accessToken,
+      allowUnauthorizedRetry: false,
       silentUnauthorized: true,
     });
 
@@ -508,6 +522,7 @@ async function fetchActivityZones(accessToken: string, activityId: number) {
       `/activities/${activityId}/zones`,
       {
         accessToken,
+        allowUnauthorizedRetry: false,
         silentUnauthorized: true,
       },
     );
@@ -525,10 +540,114 @@ async function fetchActivityZones(accessToken: string, activityId: number) {
   }
 }
 
+function toFiniteNumberOrNull(value: unknown) {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return null;
+  }
+
+  return value;
+}
+
+function firstProviderMetric(
+  activity: StravaActivity,
+  keys: string[],
+): { value: number | null; providerKey: string | null } {
+  const entry = activity as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = toFiniteNumberOrNull(entry[key]);
+    if (value !== null) {
+      return {
+        value,
+        providerKey: key,
+      };
+    }
+  }
+
+  return {
+    value: null,
+    providerKey: null,
+  };
+}
+
+function extractProviderMetrics(activity: StravaActivity): ActivityProviderMetrics {
+  const tss = firstProviderMetric(activity, ["tss", "suffer_score", "relative_effort"]);
+  const intensityFactor = firstProviderMetric(activity, ["if", "intensity_factor"]);
+  const normalizedPowerWatts = firstProviderMetric(activity, ["np", "normalized_power"]);
+  const variabilityIndex = firstProviderMetric(activity, ["vi", "variability_index"]);
+
+  return {
+    tss: tss.value,
+    intensityFactor: intensityFactor.value,
+    normalizedPowerWatts: normalizedPowerWatts.value,
+    variabilityIndex: variabilityIndex.value,
+    averageCadence: toFiniteNumberOrNull(activity.average_cadence),
+    maxCadence: toFiniteNumberOrNull(activity.max_cadence),
+    averageTempC: toFiniteNumberOrNull(activity.average_temp),
+    minTempC: toFiniteNumberOrNull(activity.min_temp),
+    maxTempC: toFiniteNumberOrNull(activity.max_temp),
+  };
+}
+
+function toSourcedMetric(
+  value: number | null,
+  source: SourcedMetric["source"],
+  providerKey: string | null,
+): SourcedMetric {
+  return {
+    value,
+    source: value === null ? "unavailable" : source,
+    providerKey: value === null ? null : providerKey,
+  };
+}
+
 function normalizeActivity(activity: StravaActivity): NormalizedActivity {
   const hasDistanceData = activity.distance > 0;
   const type = activity.sport_type ?? activity.type;
   const classification = classifyActivity(type, activity.name);
+  const providerMetrics = extractProviderMetrics(activity);
+  const tssMetric = firstProviderMetric(activity, ["tss", "suffer_score", "relative_effort"]);
+  const intensityFactorMetric = firstProviderMetric(activity, ["if", "intensity_factor"]);
+  const fallbackIntensityPercent = getActivityIntensity({
+    id: activity.id,
+    name: activity.name,
+    type,
+    classification: classification.classification,
+    analysisLabel: classification.analysisLabel,
+    startDate: activity.start_date,
+    hasDistanceData,
+    distanceMeters: activity.distance,
+    movingTimeSeconds: activity.moving_time,
+    elapsedTimeSeconds: activity.elapsed_time,
+    elevationGainMeters: activity.total_elevation_gain,
+    averageSpeed: activity.average_speed,
+    maxSpeed: activity.max_speed,
+    averageHeartrate: activity.average_heartrate ?? null,
+    maxHeartrate: activity.max_heartrate ?? null,
+    averageWatts: activity.average_watts ?? null,
+    weightedAverageWatts: activity.weighted_average_watts ?? null,
+    maxWatts: activity.max_watts ?? null,
+    kilojoules: activity.kilojoules ?? null,
+    deviceWatts: activity.device_watts ?? null,
+    calories: activity.calories ?? null,
+    description: activity.description ?? null,
+    zones: [],
+    providerMetrics,
+    resolvedMetrics: {
+      load: toSourcedMetric(null, "unavailable", null),
+      intensityPercent: toSourcedMetric(null, "unavailable", null),
+    },
+  }) * 100;
+
+  const intensityPercent =
+    intensityFactorMetric.value !== null
+      ? toSourcedMetric(intensityFactorMetric.value * 100, "provider", intensityFactorMetric.providerKey)
+      : toSourcedMetric(fallbackIntensityPercent, "derived", null);
+  const fallbackLoad = (activity.moving_time / 3600) * fallbackIntensityPercent;
+  const load =
+    tssMetric.value !== null
+      ? toSourcedMetric(tssMetric.value, "provider", tssMetric.providerKey)
+      : toSourcedMetric(fallbackLoad, "derived", null);
 
   return {
     id: activity.id,
@@ -554,14 +673,20 @@ function normalizeActivity(activity: StravaActivity): NormalizedActivity {
     calories: activity.calories ?? null,
     description: activity.description ?? null,
     zones: [],
+    providerMetrics,
+    resolvedMetrics: {
+      load,
+      intensityPercent,
+    },
   };
 }
 
-export async function getRecentActivities(days: number) {
+export async function getRecentActivities(days: number, userId: string) {
   const after = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
   const activities = await fetchStravaApi<StravaActivity[]>(
     `/athlete/activities?after=${after}&per_page=100`,
     {
+      userId,
       allowUnauthorizedRetry: true,
     },
   );
@@ -571,14 +696,22 @@ export async function getRecentActivities(days: number) {
   return activities.map(normalizeActivity);
 }
 
-async function upsertActivities(athleteId: string, activities: NormalizedActivity[]) {
+async function upsertActivities(
+  userId: string,
+  athleteId: string,
+  activities: NormalizedActivity[],
+) {
   await Promise.all(
     activities.map((activity) =>
       prisma.stravaActivity.upsert({
         where: {
-          stravaActivityId: BigInt(activity.id),
+          userId_stravaActivityId: {
+            userId,
+            stravaActivityId: BigInt(activity.id),
+          },
         },
         update: {
+          userId,
           athleteId,
           name: activity.name,
           type: activity.type,
@@ -604,8 +737,10 @@ async function upsertActivities(athleteId: string, activities: NormalizedActivit
           calories: activity.calories,
           description: activity.description,
           zonesJson: JSON.stringify(activity.zones),
+          providerMetricsJson: JSON.stringify(activity.providerMetrics),
         },
         create: {
+          userId,
           stravaActivityId: BigInt(activity.id),
           athleteId,
           name: activity.name,
@@ -632,15 +767,85 @@ async function upsertActivities(athleteId: string, activities: NormalizedActivit
           calories: activity.calories,
           description: activity.description,
           zonesJson: JSON.stringify(activity.zones),
+          providerMetricsJson: JSON.stringify(activity.providerMetrics),
         },
       }),
     ),
   );
 }
 
+function parseProviderMetrics(
+  providerMetricsJson: string | null,
+): ActivityProviderMetrics | null {
+  if (!providerMetricsJson) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(providerMetricsJson) as ActivityProviderMetrics;
+  } catch {
+    return null;
+  }
+}
+
 function fromStoredActivity(
   activity: Awaited<ReturnType<typeof prisma.stravaActivity.findMany>>[number],
 ): NormalizedActivity {
+  const providerMetrics =
+    parseProviderMetrics(activity.providerMetricsJson) ?? {
+      tss: null,
+      intensityFactor: null,
+      normalizedPowerWatts: null,
+      variabilityIndex: null,
+      averageCadence: null,
+      maxCadence: null,
+      averageTempC: null,
+      minTempC: null,
+      maxTempC: null,
+    };
+  const fallbackIntensityPercent = getActivityIntensity({
+    id: Number(activity.stravaActivityId),
+    name: activity.name,
+    type: activity.type,
+    classification: activity.classification,
+    analysisLabel: activity.analysisLabel,
+    startDate: activity.startDate.toISOString(),
+    hasDistanceData: activity.hasDistanceData,
+    distanceMeters: activity.distanceMeters,
+    movingTimeSeconds: activity.movingTimeSeconds,
+    elapsedTimeSeconds: activity.elapsedTimeSeconds,
+    elevationGainMeters: activity.elevationGainMeters,
+    averageSpeed: activity.averageSpeed,
+    maxSpeed: activity.maxSpeed,
+    averageHeartrate: activity.averageHeartrate,
+    maxHeartrate: activity.maxHeartrate,
+    averageWatts: activity.averageWatts,
+    weightedAverageWatts: activity.weightedAverageWatts,
+    maxWatts: activity.maxWatts,
+    kilojoules: activity.kilojoules,
+    deviceWatts: activity.deviceWatts,
+    calories: activity.calories,
+    description: activity.description,
+    zones: activity.zonesJson ? (JSON.parse(activity.zonesJson) as ActivityZone[]) : [],
+    providerMetrics,
+    resolvedMetrics: {
+      load: toSourcedMetric(null, "unavailable", null),
+      intensityPercent: toSourcedMetric(null, "unavailable", null),
+    },
+  }) * 100;
+  const resolvedIntensity =
+    providerMetrics.intensityFactor !== null
+      ? toSourcedMetric(providerMetrics.intensityFactor * 100, "provider", "if")
+      : toSourcedMetric(fallbackIntensityPercent, "derived", null);
+  const resolvedLoad =
+    providerMetrics.tss !== null
+      ? toSourcedMetric(providerMetrics.tss, "provider", "tss")
+      : toSourcedMetric(
+          (activity.movingTimeSeconds / 3600) * fallbackIntensityPercent,
+          "derived",
+          null,
+        );
+
   return {
     id: Number(activity.stravaActivityId),
     name: activity.name,
@@ -665,6 +870,11 @@ function fromStoredActivity(
     calories: activity.calories,
     description: activity.description,
     zones: activity.zonesJson ? (JSON.parse(activity.zonesJson) as ActivityZone[]) : [],
+    providerMetrics,
+    resolvedMetrics: {
+      load: resolvedLoad,
+      intensityPercent: resolvedIntensity,
+    },
   };
 }
 
@@ -774,13 +984,19 @@ function calculateTrainingMetrics(activities: NormalizedActivity[]): TrainingMet
     };
   }
 
-  const weightedIntensity = activities.reduce(
-    (sum, activity) =>
-      sum + getActivityIntensity(activity) * activity.movingTimeSeconds,
-    0,
-  );
+  const weightedIntensity = activities.reduce((sum, activity) => {
+    const resolvedIntensity =
+      activity.resolvedMetrics.intensityPercent.value ??
+      getActivityIntensity(activity) * 100;
+    return sum + (resolvedIntensity / 100) * activity.movingTimeSeconds;
+  }, 0);
   const intensity = (weightedIntensity / durationSeconds) * 100;
-  const load = (durationSeconds / 3600) * intensity;
+  const load = activities.reduce((sum, activity) => {
+    const resolvedLoad =
+      activity.resolvedMetrics.load.value ??
+      (activity.movingTimeSeconds / 3600) * (getActivityIntensity(activity) * 100);
+    return sum + resolvedLoad;
+  }, 0);
 
   return {
     load: roundMetric(load),
@@ -1033,19 +1249,20 @@ async function enrichActivitiesWithZones(
   };
 }
 
-export async function syncAndLoadActivities(days: number) {
-  const { athleteId, accessToken, grantedScopes } = await getValidAccessToken();
-  const recentActivities = await getRecentActivities(days);
+export async function syncAndLoadActivities(days: number, userId: string) {
+  const { athleteId, accessToken, grantedScopes } = await getValidAccessToken(userId);
+  const recentActivities = await getRecentActivities(days, userId);
   const { activities: enrichedActivities } = await enrichActivitiesWithZones(
     recentActivities,
     accessToken,
   );
-  await upsertActivities(athleteId, enrichedActivities);
+  await upsertActivities(userId, athleteId, enrichedActivities);
   const athleteZones = await fetchAthleteZones(accessToken, grantedScopes);
 
   const afterDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
   const storedActivities = await prisma.stravaActivity.findMany({
     where: {
+      userId,
       athleteId,
       startDate: {
         gte: afterDate,
@@ -1102,8 +1319,11 @@ function toSnapshotSummary(
   };
 }
 
-async function loadRecentSnapshotsWithPayload(limit = 40) {
+async function loadRecentSnapshotsWithPayload(userId: string, limit = 40) {
   const snapshots = await prisma.exportSnapshot.findMany({
+    where: {
+      userId,
+    },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
@@ -1123,9 +1343,10 @@ async function loadRecentSnapshotsWithPayload(limit = 40) {
   }, []);
 }
 
-async function saveExportSnapshot(payload: ExportPayload) {
+async function saveExportSnapshot(payload: ExportPayload, userId: string) {
   const snapshot = await prisma.exportSnapshot.create({
     data: {
+      userId,
       rangeStart: new Date(payload.rangeStart),
       rangeEnd: new Date(payload.rangeEnd),
       activityJson: JSON.stringify(payload),
@@ -1180,8 +1401,9 @@ export async function buildAndStoreExportPayload(
   days: number,
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
+  userId: string,
 ) {
-  const recentSnapshotsWithPayload = await loadRecentSnapshotsWithPayload();
+  const recentSnapshotsWithPayload = await loadRecentSnapshotsWithPayload(userId);
   const previousSnapshots = recentSnapshotsWithPayload.map((entry) => entry.summary).slice(0, 6);
   const latestSnapshotForCompare = recentSnapshotsWithPayload[0] ?? null;
   const snapshotCompare = buildSnapshotCompare(
@@ -1198,7 +1420,7 @@ export async function buildAndStoreExportPayload(
     snapshotCompare,
   );
 
-  const latestSnapshot = await saveExportSnapshot(payload);
+  const latestSnapshot = await saveExportSnapshot(payload, userId);
 
   return {
     ...payload,

@@ -159,6 +159,10 @@ function toPromptLine(activity: NormalizedActivity, index: number) {
   const averagePower = formatPower(activity.averageWatts);
   const weightedPower = formatPower(activity.weightedAverageWatts);
   const maxPower = formatPower(activity.maxWatts);
+  const loadValue = activity.resolvedMetrics.load.value;
+  const intensityValue = activity.resolvedMetrics.intensityPercent.value;
+  const loadSource = activity.resolvedMetrics.load.source;
+  const intensitySource = activity.resolvedMetrics.intensityPercent.source;
   const lines = [
     `${index + 1}. ${activity.name}`,
     `- Trainingsart: ${activity.analysisLabel}`,
@@ -198,6 +202,38 @@ function toPromptLine(activity: NormalizedActivity, index: number) {
 
   if (maxPower) {
     lines.push(`- Maximalleistung: ${maxPower}`);
+  }
+
+  if (loadValue !== null) {
+    lines.push(
+      `- Session Load: ${Math.round(loadValue * 10) / 10} (${loadSource === "provider" ? "Provider" : "Fallback"})`,
+    );
+  }
+
+  if (intensityValue !== null) {
+    lines.push(
+      `- Intensitaet: ${Math.round(intensityValue * 10) / 10} % (${intensitySource === "provider" ? "Provider" : "Fallback"})`,
+    );
+  }
+
+  if (activity.providerMetrics.tss !== null) {
+    lines.push(`- Provider-TSS: ${Math.round(activity.providerMetrics.tss * 10) / 10}`);
+  }
+
+  if (activity.providerMetrics.intensityFactor !== null) {
+    lines.push(
+      `- Provider-IF: ${Math.round(activity.providerMetrics.intensityFactor * 1000) / 1000}`,
+    );
+  }
+
+  if (activity.providerMetrics.normalizedPowerWatts !== null) {
+    lines.push(`- Provider-NP: ${Math.round(activity.providerMetrics.normalizedPowerWatts)} W`);
+  }
+
+  if (activity.providerMetrics.variabilityIndex !== null) {
+    lines.push(
+      `- Provider-VI: ${Math.round(activity.providerMetrics.variabilityIndex * 100) / 100}`,
+    );
   }
 
   if (activity.kilojoules) {

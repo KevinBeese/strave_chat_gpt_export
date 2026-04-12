@@ -38,6 +38,8 @@ export const SNAPSHOT_FORMULA_FALLBACK_ORDER = [
 ] as const;
 
 export const SNAPSHOT_FORMULA_DOCUMENTATION = [
+  "Provider-first: vorhandene Provider-Metriken werden direkt genutzt.",
+  "Die Formel wird nur als Fallback verwendet, wenn Providerwerte fehlen.",
   "v2 nutzt sportartspezifische Gewichte fuer die HR/Power-Kombination.",
   "Bei Filter = All wird je Aktivitaet automatisch das passende Sportprofil verwendet.",
   "Falls nur HR oder nur Power verfuegbar ist, wird dieser Kanal direkt verwendet.",

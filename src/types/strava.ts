@@ -68,4 +68,19 @@ export type StravaActivity = {
   device_watts?: boolean;
   calories?: number;
   description?: string;
+  average_temp?: number;
+  max_temp?: number;
+  min_temp?: number;
+  average_cadence?: number;
+  max_cadence?: number;
+  suffer_score?: number;
+  relative_effort?: number;
+  // Provider-/Device-seitige Zusatzmetriken (nicht immer vorhanden)
+  tss?: number;
+  if?: number;
+  np?: number;
+  vi?: number;
+  intensity_factor?: number;
+  normalized_power?: number;
+  variability_index?: number;
 };

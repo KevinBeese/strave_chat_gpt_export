@@ -20,7 +20,7 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
   if (disconnected === "1") {
     return {
       tone: "neutral" as const,
-      text: "Die lokale Strava-Verbindung wurde entfernt.",
+      text: "Die Strava-Verbindung fuer diese Session wurde entfernt.",
     };
   }
 
@@ -73,9 +73,9 @@ export default async function DashboardPage({
             Strava-Verbindung verwalten
           </h1>
           <p className="mt-4 text-sm leading-6 text-black/72">
-            Im MVP speichern wir genau einen lokalen Strava-Zugang. Sobald die
-            OAuth-Daten hinterlegt sind, kannst du von hier die letzten 7 Tage
-            exportieren.
+            Jede Browser-Session nutzt jetzt einen eigenen User-Kontext mit
+            separater Strava-Verbindung. Nach der OAuth-Freigabe kannst du die
+            letzten 7, 14 oder 30 Tage exportieren.
           </p>
           <div className="mt-6 rounded-3xl border border-[color:var(--border)] bg-white/85 p-5 shadow-[0_10px_30px_rgba(29,27,22,0.05)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
