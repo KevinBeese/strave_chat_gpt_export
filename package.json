@@ -8,12 +8,12 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
+    "start:prod": "npm run prisma:push && npm run start",
     "test": "vitest run",
     "lint": "eslint .",
-    "prisma:bootstrap": "node scripts/ensure-sqlite-db.mjs",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:setup": "npm run prisma:bootstrap && npm run prisma:push && npm run prisma:generate"
+    "prisma:setup": "npm run prisma:push && npm run prisma:generate"
   },
   "license": "ISC",
   "dependencies": {

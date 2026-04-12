@@ -1,4 +1,3 @@
-import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 
 import { getEnv } from "@/lib/env";
@@ -22,7 +21,7 @@ export async function GET(request: Request) {
       `https://www.strava.com/oauth/authorize?${params.toString()}`,
     );
 
-    (await cookies()).set("strava_oauth_state", state, {
+    response.cookies.set("strava_oauth_state", state, {
       httpOnly: true,
       maxAge: 60 * 10,
       path: "/",
@@ -32,6 +31,12 @@ export async function GET(request: Request) {
 
     return response;
   } catch (error) {
+    const message = error instanceof Error ? error.message : "Unknown auth setup error";
+    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
+    if (isSchemaMissing) {
+      return NextResponse.redirect(new URL("/dashboard?error=db_schema_missing", request.url));
+    }
+
     console.error("Failed to initialize Strava auth route", error);
     return NextResponse.redirect(new URL("/dashboard?error=auth_setup_failed", request.url));
   }

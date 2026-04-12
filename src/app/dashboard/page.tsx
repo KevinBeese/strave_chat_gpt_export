@@ -30,6 +30,10 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
       invalid_state: "Die Rueckkehr von Strava konnte nicht sicher verifiziert werden. Bitte versuche den Login erneut.",
       missing_code: "Strava hat keinen gueltigen OAuth-Code zurueckgegeben.",
       oauth_failed: "Der Austausch des Strava-OAuth-Tokens ist fehlgeschlagen.",
+      auth_setup_failed: "Die Session oder Auth-Initialisierung ist fehlgeschlagen.",
+      db_write_failed: "OAuth war erfolgreich, aber die Verbindung konnte nicht gespeichert werden. Pruefe auf Vercel die Datenbank-Konfiguration (SQLite-Dateipfade sind dort meist nicht beschreibbar).",
+      db_schema_missing: "Die Datenbank ist erreichbar, aber das Prisma-Schema fehlt (P2021). Auf Vercel mit /tmp muss das Schema bei jedem Start neu erstellt werden; nutze besser Postgres.",
+      disconnect_failed: "Die Verbindung konnte nicht getrennt werden.",
     };
 
     return {

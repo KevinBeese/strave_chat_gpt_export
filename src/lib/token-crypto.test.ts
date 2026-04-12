@@ -5,7 +5,8 @@ import { decryptToken, encryptToken, isEncryptedToken } from "@/lib/token-crypto
 describe("token-crypto", () => {
   beforeEach(() => {
     process.env.APP_URL = "http://localhost:3000";
-    process.env.DATABASE_URL = "file:./dev.db";
+    process.env.DATABASE_URL =
+      "postgresql://postgres:postgres@localhost:5432/strava_export_test?schema=public";
     process.env.SESSION_SECRET = "test-session-secret-1234567890";
     process.env.STRAVA_CLIENT_ID = "client";
     process.env.STRAVA_CLIENT_SECRET = "secret";
