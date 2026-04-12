@@ -1,6 +1,6 @@
 # Strava GPT Export
 
-Lokales MVP, um Strava-Aktivitaeten der letzten 7 Tage zu laden und in ein ChatGPT-taugliches Format zu exportieren.
+MVP, um Strava-Aktivitaeten per sessionbasiertem User-Flow zu laden und in ein ChatGPT-taugliches Format zu exportieren.
 
 ## Stack
 
@@ -14,7 +14,8 @@ Lokales MVP, um Strava-Aktivitaeten der letzten 7 Tage zu laden und in ein ChatG
 ## MVP-Funktionen
 
 - Strava OAuth Login
-- Lokale Speicherung von Token in SQLite
+- Sessionbasierter User-Flow (pro Browser-Session)
+- Speicherung von Token pro User in SQLite
 - Export der letzten 7 Tage
 - Ausgabe als JSON
 - Ausgabe als ChatGPT-Ready Text
@@ -71,7 +72,7 @@ Danach ist die App unter `http://localhost:3000` erreichbar.
 
 ## Naechste Schritte
 
-- echten Session-Flow fuer mehrere Nutzer aufbauen
+- optionaler Login-Provider (z. B. Auth.js) fuer persistente Accounts
 - Export als Datei-Download ergaenzen
 - gespeicherte Exporte historisieren
 - spaeter Streams und weitere Metriken anbinden

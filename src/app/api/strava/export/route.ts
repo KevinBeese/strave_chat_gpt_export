@@ -5,10 +5,12 @@ import {
   buildAndStoreExportPayload,
   syncAndLoadActivities,
 } from "@/lib/strava";
+import { getOrCreateCurrentUserId } from "@/lib/user-session";
 
 const allowedDays = new Set([7, 14, 30]);
 
 export async function GET(request: NextRequest) {
+  const userId = await getOrCreateCurrentUserId();
   const daysParam = request.nextUrl.searchParams.get("days") ?? "7";
   const days = Number(daysParam);
 
@@ -20,12 +22,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { activities, athleteZones, grantedScopes } = await syncAndLoadActivities(days);
+    const { activities, athleteZones, grantedScopes } = await syncAndLoadActivities(
+      days,
+      userId,
+    );
     const payload = await buildAndStoreExportPayload(
       activities,
       days,
       athleteZones,
       grantedScopes,
+      userId,
     );
     return NextResponse.json(payload);
   } catch (error) {

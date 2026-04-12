@@ -44,6 +44,29 @@ function makeActivity(overrides: Partial<NormalizedActivity> = {}): NormalizedAc
     calories: null,
     description: null,
     zones: [],
+    providerMetrics: {
+      tss: null,
+      intensityFactor: null,
+      normalizedPowerWatts: null,
+      variabilityIndex: null,
+      averageCadence: null,
+      maxCadence: null,
+      averageTempC: null,
+      minTempC: null,
+      maxTempC: null,
+    },
+    resolvedMetrics: {
+      load: {
+        value: null,
+        source: "unavailable",
+        providerKey: null,
+      },
+      intensityPercent: {
+        value: null,
+        source: "unavailable",
+        providerKey: null,
+      },
+    },
     ...overrides,
   };
 }

@@ -2,8 +2,10 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { exchangeCodeForToken, upsertStravaConnection } from "@/lib/strava";
+import { getOrCreateCurrentUserId } from "@/lib/user-session";
 
 export async function GET(request: NextRequest) {
+  const userId = await getOrCreateCurrentUserId();
   const cookieStore = await cookies();
   const storedState = cookieStore.get("strava_oauth_state")?.value;
   const code = request.nextUrl.searchParams.get("code");
@@ -30,7 +32,7 @@ export async function GET(request: NextRequest) {
     await upsertStravaConnection({
       ...token,
       scope: token.scope ?? scope,
-    });
+    }, userId);
   } catch {
     return NextResponse.redirect(new URL("/dashboard?error=oauth_failed", request.url));
   }

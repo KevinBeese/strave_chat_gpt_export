@@ -112,6 +112,26 @@ export type SnapshotCompare = {
   bySport: Record<SnapshotSportFilter, SnapshotCompareMetrics>;
 };
 
+export type MetricSource = "provider" | "derived" | "unavailable";
+
+export type SourcedMetric = {
+  value: number | null;
+  source: MetricSource;
+  providerKey: string | null;
+};
+
+export type ActivityProviderMetrics = {
+  tss: number | null;
+  intensityFactor: number | null;
+  normalizedPowerWatts: number | null;
+  variabilityIndex: number | null;
+  averageCadence: number | null;
+  maxCadence: number | null;
+  averageTempC: number | null;
+  minTempC: number | null;
+  maxTempC: number | null;
+};
+
 export type NormalizedActivity = {
   id: number;
   name: string;
@@ -136,6 +156,11 @@ export type NormalizedActivity = {
   calories: number | null;
   description: string | null;
   zones: ActivityZone[];
+  providerMetrics: ActivityProviderMetrics;
+  resolvedMetrics: {
+    load: SourcedMetric;
+    intensityPercent: SourcedMetric;
+  };
 };
 
 export type ExportPayload = {

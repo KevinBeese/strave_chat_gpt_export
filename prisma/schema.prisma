@@ -9,7 +9,8 @@ datasource db {
 
 model StravaConnection {
   id            String   @id @default(cuid())
-  athleteId     String   @unique
+  userId        String?  @unique
+  athleteId     String
   athleteName   String?
   accessToken   String
   refreshToken  String
@@ -17,19 +18,29 @@ model StravaConnection {
   scope         String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, athleteId])
 }
 
 model ExportSnapshot {
   id           String   @id @default(cuid())
+  userId       String?
   rangeStart   DateTime
   rangeEnd     DateTime
   activityJson String
   createdAt    DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
 }
 
 model StravaActivity {
   id                 String   @id @default(cuid())
-  stravaActivityId   BigInt   @unique
+  userId             String?
+  stravaActivityId   BigInt
   athleteId          String
   name               String
   type               String
@@ -53,8 +64,37 @@ model StravaActivity {
   calories           Float?
   description        String?
   zonesJson          String?
+  providerMetricsJson String?
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, stravaActivityId])
   @@index([athleteId, startDate])
+  @@index([userId, startDate])
+}
+
+model User {
+  id                String            @id @default(cuid())
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  sessions          UserSession[]
+  stravaConnection  StravaConnection?
+  exportSnapshots   ExportSnapshot[]
+  stravaActivities  StravaActivity[]
+}
+
+model UserSession {
+  id             String   @id @default(cuid())
+  sessionToken   String   @unique
+  userId         String
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
 }
