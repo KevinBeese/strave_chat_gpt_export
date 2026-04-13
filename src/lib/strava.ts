@@ -805,10 +805,16 @@ async function upsertActivities(
 ) {
   const toRawJson = (entry: NormalizedActivity): Prisma.InputJsonValue =>
     JSON.parse(JSON.stringify(entry)) as Prisma.InputJsonValue;
+  const concurrency = 2;
+  let cursor = 0;
 
-  await Promise.all(
-    activities.map((activity) =>
-      prisma.activity.upsert({
+  async function worker() {
+    while (cursor < activities.length) {
+      const index = cursor;
+      cursor += 1;
+      const activity = activities[index];
+
+      await prisma.activity.upsert({
         where: {
           id: BigInt(activity.id),
         },
@@ -882,8 +888,12 @@ async function upsertActivities(
           zonesJson: JSON.stringify(activity.zones),
           providerMetricsJson: JSON.stringify(activity.providerMetrics),
         },
-      }),
-    ),
+      });
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, activities.length) }, () => worker()),
   );
 }
 
