@@ -23,6 +23,22 @@ model StravaConnection {
   user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
+model WahooConnection {
+  id           String   @id @default(cuid())
+  userId       String   @unique @db.Uuid
+  wahooUserId  String
+  displayName  String?
+  email        String?
+  accessToken  String
+  refreshToken String
+  expiresAt    DateTime
+  scope        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
 model ExportSnapshot {
   id           String   @id @default(cuid())
   userId       String   @db.Uuid
@@ -39,6 +55,8 @@ model ExportSnapshot {
 model Activity {
   id                 BigInt   @id
   userId             String   @db.Uuid
+  provider           String   @default("strava")
+  providerActivityId String
   athleteId          String
   name               String
   type               String
@@ -75,6 +93,8 @@ model Activity {
 
   @@index([athleteId, startDate])
   @@index([userId, startDate])
+  @@index([userId, provider, startDate])
+  @@unique([userId, provider, providerActivityId])
 }
 
 model Profile {
@@ -85,6 +105,7 @@ model Profile {
   updatedAt         DateTime          @updatedAt
   sessions          UserSession[]
   stravaConnection  StravaConnection?
+  wahooConnection   WahooConnection?
   exportSnapshots   ExportSnapshot[]
   activities        Activity[]
 }

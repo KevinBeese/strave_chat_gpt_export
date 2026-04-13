@@ -12,25 +12,42 @@ import { getConnectionStatus } from "@/lib/connection-status";
 import { getDashboardSummary } from "@/lib/dashboard";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAthleteProfile } from "@/lib/strava";
+import { getCurrentWahooProfile, getWahooConnectionStatus } from "@/lib/wahoo";
 
 export const dynamic = "force-dynamic";
 
 function getStatusMessage(searchParams: Record<string, string | string[] | undefined>) {
-  const connected = searchParams.connected;
-  const disconnected = searchParams.disconnected;
+  const stravaConnected = searchParams.connected;
+  const stravaDisconnected = searchParams.disconnected;
+  const wahooConnected = searchParams.wahoo_connected;
+  const wahooDisconnected = searchParams.wahoo_disconnected;
   const error = searchParams.error;
 
-  if (connected === "1") {
+  if (stravaConnected === "1") {
     return {
       tone: "success" as const,
       text: "Strava wurde erfolgreich verbunden.",
     };
   }
 
-  if (disconnected === "1") {
+  if (stravaDisconnected === "1") {
     return {
       tone: "neutral" as const,
       text: "Die Strava-Verbindung wurde entfernt.",
+    };
+  }
+
+  if (wahooConnected === "1") {
+    return {
+      tone: "success" as const,
+      text: "Wahoo wurde erfolgreich verbunden.",
+    };
+  }
+
+  if (wahooDisconnected === "1") {
+    return {
+      tone: "neutral" as const,
+      text: "Die Wahoo-Verbindung wurde entfernt.",
     };
   }
 
@@ -44,12 +61,17 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
       db_write_failed: "OAuth war erfolgreich, aber die Verbindung konnte nicht gespeichert werden.",
       db_schema_missing: "Prisma-Tabellen fehlen in der Datenbank.",
       disconnect_failed: "Die Verbindung konnte nicht getrennt werden.",
+      wahoo_invalid_state: "Die Rueckkehr von Wahoo konnte nicht verifiziert werden.",
+      wahoo_missing_code: "Wahoo hat keinen gueltigen OAuth-Code zurueckgegeben.",
+      wahoo_oauth_failed: "Der Austausch des Wahoo-OAuth-Tokens ist fehlgeschlagen.",
+      wahoo_auth_setup_failed: "Die Wahoo-Initialisierung ist fehlgeschlagen.",
+      wahoo_disconnect_failed: "Die Wahoo-Verbindung konnte nicht getrennt werden.",
       unauthorized: "Bitte logge dich zuerst ein.",
     };
 
     return {
       tone: "error" as const,
-      text: messages[error] ?? `Strava hat mit einem Fehler geantwortet: ${error}`,
+      text: messages[error] ?? `OAuth hat mit einem Fehler geantwortet: ${error}`,
     };
   }
 
@@ -85,12 +107,22 @@ export default async function DashboardPage({
   const user = await requireAuthenticatedUser();
   await ensureAppUserExists(user.id, user.email);
 
-  const [resolvedSearchParams, connection, summary, profile, athleteProfile] = await Promise.all([
+  const [
+    resolvedSearchParams,
+    stravaConnection,
+    wahooConnection,
+    summary,
+    profile,
+    athleteProfile,
+    wahooProfile,
+  ] = await Promise.all([
     searchParams,
     getConnectionStatus(user.id),
+    getWahooConnectionStatus(user.id),
     getDashboardSummary(user.id),
     prisma.profile.findUnique({ where: { id: user.id }, select: { displayName: true } }),
     getCurrentAthleteProfile(user.id),
+    getCurrentWahooProfile(user.id),
   ]);
 
   const statusMessage = getStatusMessage(resolvedSearchParams);
@@ -113,43 +145,84 @@ export default async function DashboardPage({
               <div>
                 <p className="text-sm uppercase tracking-[0.12em] text-black/55">Status</p>
                 <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dein Dashboard</h1>
-                <p className="mt-2 text-sm text-black/70">
-                  {connection.connected ? "Strava verbunden" : "Strava nicht verbunden"}
+                <p className="mt-2 text-sm text-black/65">
+                  Strava: {stravaConnection.connected ? "verbunden" : "nicht verbunden"} | Wahoo:{" "}
+                  {wahooConnection.connected ? "verbunden" : "nicht verbunden"}
                 </p>
               </div>
-              <SyncButton disabled={!connection.connected} />
+              <SyncButton disabled={!stravaConnection.connected} provider="strava" />
             </div>
 
-            {connection.connected ? (
-              <div className="mt-5 rounded-2xl border border-black/10 bg-white/80 p-4">
-                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Verbundener Strava Account</p>
-                <div className="mt-3 flex items-center gap-3">
-                  {athleteProfile?.avatarUrl ? (
-                    <Image
-                      alt="Strava Profilbild"
-                      className="h-12 w-12 rounded-full border border-black/10 object-cover"
-                      height={48}
-                      src={athleteProfile.avatarUrl}
-                      width={48}
-                    />
-                  ) : (
-                    <div className="flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-black/5 text-xs text-black/55">
-                      N/A
+            <div className="mt-5 grid gap-3 md:grid-cols-2">
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Strava</p>
+                <p className="mt-2 text-sm font-medium text-black/80">
+                  {stravaConnection.connected ? "Verbunden" : "Nicht verbunden"}
+                </p>
+
+                {stravaConnection.connected ? (
+                  <div className="mt-3 flex items-center gap-3">
+                    {athleteProfile?.avatarUrl ? (
+                      <Image
+                        alt="Strava Profilbild"
+                        className="h-12 w-12 rounded-full border border-black/10 object-cover"
+                        height={48}
+                        src={athleteProfile.avatarUrl}
+                        width={48}
+                      />
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-black/5 text-xs text-black/55">
+                        N/A
+                      </div>
+                    )}
+                    <div className="text-sm">
+                      <p className="font-medium text-black/85">
+                        {athleteProfile?.displayName || stravaConnection.label || "Unbekannt"}
+                      </p>
+                      <p className="text-black/60">Athlete ID: {stravaConnection.athleteId ?? "-"}</p>
                     </div>
-                  )}
-                  <div className="text-sm">
-                    <p className="font-medium text-black/85">
-                      {athleteProfile?.displayName || connection.label || "Unbekannt"}
-                    </p>
-                    <p className="text-black/60">Athlete ID: {connection.athleteId ?? "-"}</p>
                   </div>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <ConnectButton
+                    connected={stravaConnection.connected}
+                    disabled={!stravaConnection.canStartOauth}
+                    provider="strava"
+                  />
+                  {stravaConnection.connected ? <DisconnectButton provider="strava" /> : null}
+                  <SyncButton disabled={!stravaConnection.connected} provider="strava" />
                 </div>
               </div>
-            ) : null}
+
+              <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Wahoo</p>
+                <p className="mt-2 text-sm font-medium text-black/80">
+                  {wahooConnection.connected ? "Verbunden" : "Nicht verbunden"}
+                </p>
+
+                {wahooConnection.connected ? (
+                  <div className="mt-3 text-sm">
+                    <p className="font-medium text-black/85">
+                      {wahooProfile?.displayName || wahooConnection.label || "Unbekannt"}
+                    </p>
+                    <p className="text-black/60">Wahoo User ID: {wahooConnection.wahooUserId ?? "-"}</p>
+                  </div>
+                ) : null}
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <ConnectButton
+                    connected={wahooConnection.connected}
+                    disabled={!wahooConnection.canStartOauth}
+                    provider="wahoo"
+                  />
+                  {wahooConnection.connected ? <DisconnectButton provider="wahoo" /> : null}
+                  <SyncButton disabled={!wahooConnection.connected} provider="wahoo" />
+                </div>
+              </div>
+            </div>
 
             <div className="mt-5 flex flex-wrap gap-3">
-              <ConnectButton connected={connection.connected} disabled={!connection.canStartOauth} />
-              {connection.connected ? <DisconnectButton /> : null}
               <form action="/auth/sign-out" method="post">
                 <PendingSubmitButton
                   className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
@@ -201,7 +274,10 @@ export default async function DashboardPage({
               <p className="mt-2 text-sm text-black/72">{summary.last7Days.activities} Aktivitaeten</p>
               <p className="text-sm text-black/72">{formatDistance(summary.last7Days.distanceMeters)}</p>
               <p className="text-sm text-black/72">{formatDuration(summary.last7Days.movingTimeSeconds)}</p>
-              <Link className="mt-3 inline-block text-sm font-medium text-[color:var(--accent)] hover:underline" href="/activities?range=7">
+              <Link
+                className="mt-3 inline-block text-sm font-medium text-[color:var(--accent)] hover:underline"
+                href="/activities?range=7"
+              >
                 Details ansehen
               </Link>
             </article>
@@ -210,7 +286,10 @@ export default async function DashboardPage({
               <p className="mt-2 text-sm text-black/72">{summary.last30Days.activities} Aktivitaeten</p>
               <p className="text-sm text-black/72">{formatDistance(summary.last30Days.distanceMeters)}</p>
               <p className="text-sm text-black/72">{formatDuration(summary.last30Days.movingTimeSeconds)}</p>
-              <Link className="mt-3 inline-block text-sm font-medium text-[color:var(--accent)] hover:underline" href="/activities?range=30">
+              <Link
+                className="mt-3 inline-block text-sm font-medium text-[color:var(--accent)] hover:underline"
+                href="/activities?range=30"
+              >
                 Details ansehen
               </Link>
             </article>
@@ -247,7 +326,7 @@ export default async function DashboardPage({
                 >
                   <span className="truncate pr-3">{activity.name}</span>
                   <span className="whitespace-nowrap text-black/65">
-                    {activity.type} - {formatDistance(activity.distanceMeters)}
+                    {activity.provider} · {activity.type} - {formatDistance(activity.distanceMeters)}
                   </span>
                 </Link>
               ))}
@@ -271,7 +350,7 @@ export default async function DashboardPage({
         </section>
 
         <aside className="space-y-6">
-          <ExportPanel connected={connection.connected} />
+          <ExportPanel connected={stravaConnection.connected} />
         </aside>
       </div>
     </main>

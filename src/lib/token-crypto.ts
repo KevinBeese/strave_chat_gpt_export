@@ -1,15 +1,17 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
 
-import { getEnv } from "@/lib/env";
-
 const TOKEN_PREFIX = "enc:v1:";
 const AES_ALGO = "aes-256-gcm";
 const IV_LENGTH = 12;
 const AUTH_TAG_LENGTH = 16;
 
 function getEncryptionKey() {
-  const env = getEnv();
-  return createHash("sha256").update(env.SESSION_SECRET, "utf8").digest();
+  const sessionSecret = process.env.SESSION_SECRET;
+  if (!sessionSecret || sessionSecret.length < 12) {
+    throw new Error("SESSION_SECRET is missing or too short.");
+  }
+
+  return createHash("sha256").update(sessionSecret, "utf8").digest();
 }
 
 export function isEncryptedToken(value: string) {

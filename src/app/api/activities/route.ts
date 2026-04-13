@@ -23,6 +23,8 @@ export async function GET(request: NextRequest) {
     take: limit,
     select: {
       id: true,
+      provider: true,
+      providerActivityId: true,
       name: true,
       type: true,
       classification: true,
@@ -36,6 +38,8 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     activities: activities.map((activity) => ({
       id: Number(activity.id),
+      provider: activity.provider,
+      providerActivityId: activity.providerActivityId,
       name: activity.name,
       type: activity.type,
       classification: activity.classification,

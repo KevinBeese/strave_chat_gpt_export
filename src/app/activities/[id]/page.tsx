@@ -198,7 +198,10 @@ export default async function ActivityDetailPage({
       <section className="rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-8">
         <h1 className="text-3xl font-semibold tracking-tight">{activity.name}</h1>
         <p className="mt-2 text-black/65">
-          {activity.type} · {activity.classification} · {activity.analysisLabel}
+          {activity.provider} · {activity.type} · {activity.classification} · {activity.analysisLabel}
+        </p>
+        <p className="mt-1 text-sm text-black/55">
+          Provider Activity ID: {activity.providerActivityId}
         </p>
 
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

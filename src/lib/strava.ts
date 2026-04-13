@@ -811,6 +811,7 @@ export async function syncActivitiesForUser(
   const latestStored = await prisma.activity.findFirst({
     where: {
       userId,
+      provider: "strava",
       athleteId,
     },
     orderBy: {
@@ -846,6 +847,7 @@ export async function syncActivitiesForUser(
   const totalInDb = await prisma.activity.count({
     where: {
       userId,
+      provider: "strava",
       athleteId,
     },
   });
@@ -927,11 +929,16 @@ async function upsertActivities(
 
       await prisma.activity.upsert({
         where: {
-          id: BigInt(activity.id),
+          userId_provider_providerActivityId: {
+            userId,
+            provider: "strava",
+            providerActivityId: String(activity.id),
+          },
         },
         update: {
-          id: BigInt(activity.id),
           userId,
+          provider: "strava",
+          providerActivityId: String(activity.id),
           athleteId,
           name: activity.name,
           type: activity.type,
@@ -967,6 +974,8 @@ async function upsertActivities(
         create: {
           id: BigInt(activity.id),
           userId,
+          provider: "strava",
+          providerActivityId: String(activity.id),
           athleteId,
           name: activity.name,
           type: activity.type,
@@ -1515,6 +1524,7 @@ export async function syncAndLoadActivities(days: number, userId: string) {
   const storedActivities = await prisma.activity.findMany({
     where: {
       userId,
+      provider: "strava",
       athleteId,
       startDate: {
         gte: afterDate,

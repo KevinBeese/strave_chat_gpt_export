@@ -6,6 +6,7 @@ import { requireAuthenticatedUser } from "@/lib/auth";
 import { getConnectionStatus } from "@/lib/connection-status";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAthleteProfile } from "@/lib/strava";
+import { getCurrentWahooProfile, getWahooConnectionStatus } from "@/lib/wahoo";
 
 export const dynamic = "force-dynamic";
 
@@ -17,10 +18,12 @@ export default async function SettingsPage({
   const user = await requireAuthenticatedUser();
   const resolvedSearchParams = await searchParams;
 
-  const [connection, profile, athleteProfile] = await Promise.all([
+  const [stravaConnection, wahooConnection, profile, athleteProfile, wahooProfile] = await Promise.all([
     getConnectionStatus(user.id),
+    getWahooConnectionStatus(user.id),
     prisma.profile.findUnique({ where: { id: user.id }, select: { displayName: true } }),
     getCurrentAthleteProfile(user.id),
+    getCurrentWahooProfile(user.id),
   ]);
 
   return (
@@ -28,7 +31,7 @@ export default async function SettingsPage({
       <div className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-sm uppercase tracking-[0.12em] text-black/55">Einstellungen</p>
-          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Account & Strava</h1>
+          <h1 className="mt-2 text-3xl font-semibold tracking-tight">Account & Verbindungen</h1>
         </div>
         <AppNav current="settings" />
       </div>
@@ -67,38 +70,76 @@ export default async function SettingsPage({
         </section>
 
         <section className="rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6">
-          <p className="text-xs uppercase tracking-[0.08em] text-black/45">Strava Verbindung</p>
-          <p className="mt-3 text-sm font-medium text-black/80">
-            {connection.connected ? "Verbunden" : "Nicht verbunden"}
-          </p>
+          <p className="text-xs uppercase tracking-[0.08em] text-black/45">Provider Verbindungen</p>
 
-          {connection.connected ? (
-            <div className="mt-3 flex items-center gap-3 rounded-2xl border border-black/10 bg-white/85 p-3">
-              {athleteProfile?.avatarUrl ? (
-                <Image
-                  alt="Strava Profilbild"
-                  className="h-12 w-12 rounded-full border border-black/10 object-cover"
-                  height={48}
-                  src={athleteProfile.avatarUrl}
-                  width={48}
-                />
-              ) : (
-                <div className="flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-black/5 text-xs text-black/55">
-                  N/A
+          <div className="mt-3 grid gap-4">
+            <div className="rounded-2xl border border-black/10 bg-white/85 p-4">
+              <p className="text-sm font-semibold text-black/80">Strava</p>
+              <p className="mt-1 text-sm text-black/72">
+                {stravaConnection.connected ? "Verbunden" : "Nicht verbunden"}
+              </p>
+
+              {stravaConnection.connected ? (
+                <div className="mt-3 flex items-center gap-3">
+                  {athleteProfile?.avatarUrl ? (
+                    <Image
+                      alt="Strava Profilbild"
+                      className="h-12 w-12 rounded-full border border-black/10 object-cover"
+                      height={48}
+                      src={athleteProfile.avatarUrl}
+                      width={48}
+                    />
+                  ) : (
+                    <div className="flex h-12 w-12 items-center justify-center rounded-full border border-black/10 bg-black/5 text-xs text-black/55">
+                      N/A
+                    </div>
+                  )}
+                  <div className="text-sm">
+                    <p className="font-medium text-black/85">
+                      {athleteProfile?.displayName || stravaConnection.label || "Unbekannt"}
+                    </p>
+                    <p className="text-black/60">Athlete ID: {stravaConnection.athleteId ?? "-"}</p>
+                  </div>
                 </div>
-              )}
-              <div className="text-sm">
-                <p className="font-medium text-black/85">
-                  {athleteProfile?.displayName || connection.label || "Unbekannt"}
-                </p>
-                <p className="text-black/60">Athlete ID: {connection.athleteId ?? "-"}</p>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ConnectButton
+                  connected={stravaConnection.connected}
+                  disabled={!stravaConnection.canStartOauth}
+                  provider="strava"
+                />
+                {stravaConnection.connected ? <DisconnectButton provider="strava" /> : null}
               </div>
             </div>
-          ) : null}
+
+            <div className="rounded-2xl border border-black/10 bg-white/85 p-4">
+              <p className="text-sm font-semibold text-black/80">Wahoo</p>
+              <p className="mt-1 text-sm text-black/72">
+                {wahooConnection.connected ? "Verbunden" : "Nicht verbunden"}
+              </p>
+
+              {wahooConnection.connected ? (
+                <div className="mt-3 text-sm">
+                  <p className="font-medium text-black/85">
+                    {wahooProfile?.displayName || wahooConnection.label || "Unbekannt"}
+                  </p>
+                  <p className="text-black/60">Wahoo User ID: {wahooConnection.wahooUserId ?? "-"}</p>
+                </div>
+              ) : null}
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                <ConnectButton
+                  connected={wahooConnection.connected}
+                  disabled={!wahooConnection.canStartOauth}
+                  provider="wahoo"
+                />
+                {wahooConnection.connected ? <DisconnectButton provider="wahoo" /> : null}
+              </div>
+            </div>
+          </div>
 
           <div className="mt-6 flex flex-wrap gap-3">
-            <ConnectButton connected={connection.connected} disabled={!connection.canStartOauth} />
-            {connection.connected ? <DisconnectButton /> : null}
             <form action="/auth/sign-out" method="post">
               <button
                 className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
