@@ -8,8 +8,19 @@ export type StravaTokenResponse = {
     id: number;
     firstname: string;
     lastname: string;
+    profile?: string;
+    profile_medium?: string;
   };
   scope?: string;
+};
+
+export type StravaAthleteProfile = {
+  id: number;
+  firstname: string;
+  lastname: string;
+  username?: string | null;
+  profile?: string | null;
+  profile_medium?: string | null;
 };
 
 export type TokenUpsertPayload = StravaTokenResponse;
