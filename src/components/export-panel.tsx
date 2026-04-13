@@ -871,8 +871,8 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
         {averagePower ? <ActivityMetric label="Avg Power" value={averagePower} /> : null}
         {weightedPower ? <ActivityMetric label="Weighted Power" value={weightedPower} /> : null}
         {maxPower ? <ActivityMetric label="Max Power" value={maxPower} /> : null}
-        {activity.kilojoules ? (
-          <ActivityMetric label="Arbeit" value={`${Math.round(activity.kilojoules)} kJ`} />
+        {activity.calories !== null ? (
+          <ActivityMetric label="Kalorien" value={`${Math.round(activity.calories)} kcal`} />
         ) : null}
         {activity.elevationGainMeters > 0 ? (
           <ActivityMetric label="Hoehenmeter" value={`${activity.elevationGainMeters} hm`} />
