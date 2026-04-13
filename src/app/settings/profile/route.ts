@@ -6,7 +6,8 @@ import { prisma } from "@/lib/prisma";
 export async function POST(request: Request) {
   const userId = await requireAppUserId();
   const formData = await request.formData();
-  const rawDisplayName = typeof formData.get("displayName") === "string" ? formData.get("displayName") : "";
+  const displayNameEntry = formData.get("displayName");
+  const rawDisplayName = typeof displayNameEntry === "string" ? displayNameEntry : "";
   const displayName = rawDisplayName.trim().slice(0, 80);
 
   await prisma.profile.update({
