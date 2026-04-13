@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { getCurrentSupabaseUser } from "@/lib/auth";
 
 function getAuthStatus(searchParams: Record<string, string | string[] | undefined>) {
@@ -111,12 +112,11 @@ export default async function AuthPage({
               required
               type="password"
             />
-            <button
+            <PendingSubmitButton
               className="mt-5 inline-flex items-center rounded-full bg-[color:var(--accent)] px-5 py-2.5 text-sm font-medium text-[color:var(--accent-foreground)]"
-              type="submit"
-            >
-              Einloggen
-            </button>
+              idleLabel="Einloggen"
+              pendingLabel="Logge ein..."
+            />
           </form>
 
           <form
@@ -149,12 +149,11 @@ export default async function AuthPage({
               required
               type="password"
             />
-            <button
+            <PendingSubmitButton
               className="mt-5 inline-flex items-center rounded-full border border-[color:var(--border)] px-5 py-2.5 text-sm font-medium text-black/78"
-              type="submit"
-            >
-              Konto anlegen
-            </button>
+              idleLabel="Konto anlegen"
+              pendingLabel="Erstelle Konto..."
+            />
           </form>
         </div>
       </section>

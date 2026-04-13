@@ -5,6 +5,7 @@ import { AppNav } from "@/components/app-nav";
 import { ConnectButton } from "@/components/connect-button";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
+import { PendingSubmitButton } from "@/components/pending-submit-button";
 import { SyncButton } from "@/components/sync-button";
 import { ensureAppUserExists, requireAuthenticatedUser } from "@/lib/auth";
 import { getConnectionStatus } from "@/lib/connection-status";
@@ -150,12 +151,11 @@ export default async function DashboardPage({
               <ConnectButton connected={connection.connected} disabled={!connection.canStartOauth} />
               {connection.connected ? <DisconnectButton /> : null}
               <form action="/auth/sign-out" method="post">
-                <button
+                <PendingSubmitButton
                   className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
-                  type="submit"
-                >
-                  Ausloggen
-                </button>
+                  idleLabel="Ausloggen"
+                  pendingLabel="Logge aus..."
+                />
               </form>
             </div>
 

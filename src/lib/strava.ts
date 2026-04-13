@@ -39,6 +39,10 @@ import type {
 const STRAVA_API_BASE_URL = "https://www.strava.com/api/v3";
 const STRAVA_OAUTH_URL = "https://www.strava.com/oauth/token";
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 10 * 60 * 1000;
+const DETAIL_FETCH_CONCURRENCY = 1;
+const DETAIL_FETCH_DELAY_MS = 200;
+const ZONES_FETCH_CONCURRENCY = 2;
+const ZONES_FETCH_DELAY_MS = 120;
 
 type RateLimitInfo = {
   limit: string | null;
@@ -824,7 +828,8 @@ export async function syncActivitiesForUser(
     userId,
     afterUnixSeconds,
   });
-  const { activities: fetchedWithDetails } = await enrichStravaActivitiesWithDetails(
+  const { activities: fetchedWithDetails, partial: detailsPartial } =
+    await enrichStravaActivitiesWithDetails(
     fetchedActivities,
     accessToken,
   );
@@ -850,6 +855,8 @@ export async function syncActivitiesForUser(
     fetchedCount: fetchedActivities.length,
     upsertedCount: normalizedActivities.length,
     totalInDb,
+    partial: detailsPartial,
+    partialReason: detailsPartial ? ("detail_rate_limit" as const) : null,
   };
 }
 
@@ -862,7 +869,7 @@ async function enrichStravaActivitiesWithDetails(
   activities: StravaActivity[],
   accessToken: string,
 ) {
-  const concurrency = 2;
+  const concurrency = DETAIL_FETCH_CONCURRENCY;
   const enriched = [...activities];
   let cursor = 0;
   let stopReason: "rate_limit" | null = null;
@@ -883,6 +890,10 @@ async function enrichStravaActivitiesWithDetails(
           break;
         }
         throw error;
+      }
+
+      if (DETAIL_FETCH_DELAY_MS > 0 && cursor < enriched.length && stopReason === null) {
+        await sleep(DETAIL_FETCH_DELAY_MS);
       }
     }
   }
@@ -1436,7 +1447,7 @@ async function enrichActivitiesWithZones(
   activities: NormalizedActivity[],
   accessToken: string,
 ) {
-  const concurrency = 4;
+  const concurrency = ZONES_FETCH_CONCURRENCY;
   const enriched = [...activities];
   let cursor = 0;
   let stopReason: "rate_limit" | null = null;
@@ -1459,6 +1470,10 @@ async function enrichActivitiesWithZones(
         }
         throw error;
       }
+
+      if (ZONES_FETCH_DELAY_MS > 0 && cursor < enriched.length && stopReason === null) {
+        await sleep(ZONES_FETCH_DELAY_MS);
+      }
     }
   }
 
@@ -1475,12 +1490,14 @@ async function enrichActivitiesWithZones(
 export async function syncAndLoadActivities(days: number, userId: string) {
   const { athleteId, accessToken, grantedScopes } = await getValidAccessToken(userId);
   const recentStravaActivities = await getRecentStravaActivities(days, userId);
-  const { activities: recentWithDetails } = await enrichStravaActivitiesWithDetails(
+  const { activities: recentWithDetails, partial: detailsPartial } =
+    await enrichStravaActivitiesWithDetails(
     recentStravaActivities,
     accessToken,
   );
   const recentActivities = recentWithDetails.map(normalizeActivity);
-  const { activities: enrichedActivities } = await enrichActivitiesWithZones(
+  const { activities: enrichedActivities, partial: zonesPartial } =
+    await enrichActivitiesWithZones(
     recentActivities,
     accessToken,
   );
@@ -1512,6 +1529,11 @@ export async function syncAndLoadActivities(days: number, userId: string) {
     activities: storedActivities.map(fromStoredActivity),
     athleteZones,
     grantedScopes,
+    syncMeta: {
+      partial: detailsPartial || zonesPartial,
+      detailsPartial,
+      zonesPartial,
+    },
   };
 }
 

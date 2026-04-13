@@ -14,6 +14,12 @@ export async function POST() {
 
   try {
     const result = await syncActivitiesForUser(userId);
+    if (result.partial) {
+      console.warn("Strava activity sync completed partially", {
+        userId,
+        partialReason: result.partialReason,
+      });
+    }
     return NextResponse.json(result);
   } catch (error) {
     const message =
