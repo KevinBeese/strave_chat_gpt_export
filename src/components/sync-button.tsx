@@ -3,10 +3,17 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function SyncButton({ disabled }: { disabled: boolean }) {
+export function SyncButton({
+  disabled,
+  provider = "strava",
+}: {
+  disabled: boolean;
+  provider?: "strava" | "wahoo";
+}) {
   const router = useRouter();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const providerLabel = provider === "wahoo" ? "Wahoo" : "Strava";
 
   async function handleClick() {
     if (disabled || isLoading) {
@@ -17,7 +24,7 @@ export function SyncButton({ disabled }: { disabled: boolean }) {
     setError(null);
 
     try {
-      const response = await fetch("/api/strava/sync", {
+      const response = await fetch(`/api/${provider}/sync`, {
         method: "POST",
       });
 
@@ -45,7 +52,7 @@ export function SyncButton({ disabled }: { disabled: boolean }) {
         onClick={handleClick}
         type="button"
       >
-        {isLoading ? "Synchronisiert..." : "Jetzt synchronisieren"}
+        {isLoading ? `Synchronisiert ${providerLabel}...` : `${providerLabel} synchronisieren`}
       </button>
       {error ? <p className="mt-2 text-sm text-red-700">{error}</p> : null}
     </div>

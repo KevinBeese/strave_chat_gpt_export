@@ -40,6 +40,7 @@ export type DashboardSummary = {
   }>;
   recentActivities: Array<{
     id: number;
+    provider: string;
     name: string;
     type: string;
     startDate: string;
@@ -111,6 +112,7 @@ export async function getDashboardSummary(userId: string): Promise<DashboardSumm
         take: 10,
         select: {
           id: true,
+          provider: true,
           name: true,
           type: true,
           startDate: true,
@@ -147,6 +149,7 @@ export async function getDashboardSummary(userId: string): Promise<DashboardSumm
     }),
     recentActivities: recentActivities.map((activity) => ({
       id: Number(activity.id),
+      provider: activity.provider,
       name: activity.name,
       type: activity.type,
       startDate: activity.startDate.toISOString(),

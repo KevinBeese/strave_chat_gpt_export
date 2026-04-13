@@ -5,12 +5,15 @@ import { useState } from "react";
 export function ConnectButton({
   disabled,
   connected,
+  provider = "strava",
 }: {
   disabled: boolean;
   connected: boolean;
+  provider?: "strava" | "wahoo";
 }) {
   const [isLoading, setIsLoading] = useState(false);
   const isDisabled = disabled || isLoading;
+  const providerLabel = provider === "wahoo" ? "Wahoo" : "Strava";
 
   return (
     <button
@@ -21,15 +24,15 @@ export function ConnectButton({
           return;
         }
         setIsLoading(true);
-        window.location.assign("/api/strava/connect");
+        window.location.assign(`/api/${provider}/connect`);
       }}
       type="button"
     >
       {isLoading
-        ? "Verbinde mit Strava..."
+        ? `Verbinde mit ${providerLabel}...`
         : connected
-          ? "Strava-Verbindung erneuern"
-          : "Mit Strava verbinden"}
+          ? `${providerLabel}-Verbindung erneuern`
+          : `Mit ${providerLabel} verbinden`}
     </button>
   );
 }
