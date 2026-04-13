@@ -29,14 +29,23 @@ export async function POST(request: Request) {
   const { data, error } = await supabase.auth.signUp({ email, password });
 
   if (error) {
+    const reason = encodeURIComponent(error.code ?? error.message ?? "unknown_signup_error");
+    console.error("Supabase sign-up failed", {
+      code: error.code,
+      message: error.message,
+      status: error.status,
+    });
     return NextResponse.redirect(
-      new URL(`/auth?error=signup_failed&next=${encodeURIComponent(nextPath)}`, request.url),
+      new URL(
+        `/auth?error=signup_failed&reason=${reason}&next=${encodeURIComponent(nextPath)}`,
+        request.url,
+      ),
       { status: 303 },
     );
   }
 
   if (data.user) {
-    await ensureAppUserExists(data.user.id);
+    await ensureAppUserExists(data.user.id, data.user.email);
   }
 
   if (!data.session) {

@@ -1,47 +1,43 @@
+import Link from "next/link";
+
 import { ConnectButton } from "@/components/connect-button";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
+import { SyncButton } from "@/components/sync-button";
 import { ensureAppUserExists, requireAuthenticatedUser } from "@/lib/auth";
 import { getConnectionStatus } from "@/lib/connection-status";
+import { getDashboardSummary } from "@/lib/dashboard";
 
 export const dynamic = "force-dynamic";
 
 function getStatusMessage(searchParams: Record<string, string | string[] | undefined>) {
   const connected = searchParams.connected;
   const disconnected = searchParams.disconnected;
-  const auth = searchParams.auth;
   const error = searchParams.error;
 
   if (connected === "1") {
     return {
       tone: "success" as const,
-      text: "Strava wurde erfolgreich verbunden. Du kannst jetzt den 7-Tage-Export starten.",
+      text: "Strava wurde erfolgreich verbunden.",
     };
   }
 
   if (disconnected === "1") {
     return {
       tone: "neutral" as const,
-      text: "Die Strava-Verbindung fuer diese Session wurde entfernt.",
-    };
-  }
-
-  if (auth === "account_created") {
-    return {
-      tone: "success" as const,
-      text: "Konto erstellt und erfolgreich eingeloggt.",
+      text: "Die Strava-Verbindung wurde entfernt.",
     };
   }
 
   if (typeof error === "string") {
     const messages: Record<string, string> = {
       access_denied: "Die Strava-Freigabe wurde abgebrochen.",
-      invalid_state: "Die Rueckkehr von Strava konnte nicht sicher verifiziert werden. Bitte versuche den Login erneut.",
+      invalid_state: "Die Rueckkehr von Strava konnte nicht verifiziert werden.",
       missing_code: "Strava hat keinen gueltigen OAuth-Code zurueckgegeben.",
       oauth_failed: "Der Austausch des Strava-OAuth-Tokens ist fehlgeschlagen.",
-      auth_setup_failed: "Die Session oder Auth-Initialisierung ist fehlgeschlagen.",
-      db_write_failed: "OAuth war erfolgreich, aber die Verbindung konnte nicht gespeichert werden. Pruefe auf Vercel die Datenbank-Konfiguration (SQLite-Dateipfade sind dort meist nicht beschreibbar).",
-      db_schema_missing: "Die Datenbank ist erreichbar, aber das Prisma-Schema fehlt (P2021). Auf Vercel mit /tmp muss das Schema bei jedem Start neu erstellt werden; nutze besser Postgres.",
+      auth_setup_failed: "Die Session-Initialisierung ist fehlgeschlagen.",
+      db_write_failed: "OAuth war erfolgreich, aber die Verbindung konnte nicht gespeichert werden.",
+      db_schema_missing: "Prisma-Tabellen fehlen in der Datenbank.",
       disconnect_failed: "Die Verbindung konnte nicht getrennt werden.",
       unauthorized: "Bitte logge dich zuerst ein.",
     };
@@ -55,15 +51,25 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
   return null;
 }
 
-function formatExpiry(expiresAt: string | null) {
-  if (!expiresAt) {
-    return null;
+function formatDistance(meters: number) {
+  return `${(meters / 1000).toFixed(1)} km`;
+}
+
+function formatDuration(seconds: number) {
+  const hours = Math.floor(seconds / 3600);
+  const minutes = Math.round((seconds % 3600) / 60);
+
+  if (hours <= 0) {
+    return `${minutes} min`;
   }
 
+  return `${hours} h ${minutes} min`;
+}
+
+function formatDate(dateIso: string) {
   return new Intl.DateTimeFormat("de-DE", {
     dateStyle: "medium",
-    timeStyle: "short",
-  }).format(new Date(expiresAt));
+  }).format(new Date(dateIso));
 }
 
 export default async function DashboardPage({
@@ -72,129 +78,168 @@ export default async function DashboardPage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const user = await requireAuthenticatedUser();
-  await ensureAppUserExists(user.id);
-  const resolvedSearchParams = await searchParams;
-  const connection = await getConnectionStatus(user.id);
+  await ensureAppUserExists(user.id, user.email);
+
+  const [resolvedSearchParams, connection, summary] = await Promise.all([
+    searchParams,
+    getConnectionStatus(user.id),
+    getDashboardSummary(user.id),
+  ]);
+
   const statusMessage = getStatusMessage(resolvedSearchParams);
-  const expiresAt = formatExpiry(connection.expiresAt);
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-10 md:px-10">
-      <div className="grid gap-6 lg:grid-cols-[1fr_1.2fr]">
-        <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)] backdrop-blur">
-          <p className="text-sm uppercase tracking-[0.14em] text-black/55">
-            Verbindung
-          </p>
-          <h1 className="mt-4 text-3xl font-semibold tracking-tight">
-            Strava-Verbindung verwalten
-          </h1>
-          <p className="mt-4 text-sm leading-6 text-black/72">
-            Dein Account ist jetzt die Basis fuer alle Exporte. Nach der OAuth-Freigabe
-            kannst du die letzten 7, 14 oder 30 Tage exportieren, und beim naechsten
-            Login siehst du wieder genau deine Daten.
-          </p>
-          <div className="mt-4 rounded-2xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm text-black/70">
-            Eingeloggt als <span className="font-semibold">{user.email ?? user.id}</span>
-          </div>
-          <div className="mt-6 rounded-3xl border border-[color:var(--border)] bg-white/85 p-5 shadow-[0_10px_30px_rgba(29,27,22,0.05)]">
-            <div className="flex flex-wrap items-start justify-between gap-3">
+    <main className="mx-auto min-h-screen max-w-6xl px-6 py-10 md:px-10">
+      <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-black/65">Hallo {user.email ?? "Athlete"}</p>
+        <nav className="flex flex-wrap gap-2 text-sm">
+          <Link className="rounded-full bg-black/90 px-4 py-2 text-white" href="/dashboard">
+            Dashboard
+          </Link>
+          <Link className="rounded-full border border-black/10 px-4 py-2" href="/activities">
+            Activities
+          </Link>
+          <Link className="rounded-full border border-black/10 px-4 py-2" href="/settings">
+            Settings
+          </Link>
+        </nav>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
+        <section className="space-y-6">
+          <article className="rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-7">
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <p className="text-sm font-medium text-black/60">Status</p>
-                <p className="mt-2 text-lg font-semibold">
-                  {connection.connected ? "Mit Strava verbunden" : "Noch nicht verbunden"}
+                <p className="text-sm uppercase tracking-[0.12em] text-black/55">Status</p>
+                <h1 className="mt-2 text-3xl font-semibold tracking-tight">Dein Dashboard</h1>
+                <p className="mt-2 text-sm text-black/70">
+                  {connection.connected ? "Strava verbunden" : "Strava nicht verbunden"}
                 </p>
               </div>
-              <span
-                className={`rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] ${
-                  connection.hasProfileReadAll
-                    ? "bg-emerald-100 text-emerald-700"
-                    : "bg-amber-100 text-amber-800"
+              <SyncButton disabled={!connection.connected} />
+            </div>
+
+            <div className="mt-5 flex flex-wrap gap-3">
+              <ConnectButton connected={connection.connected} disabled={!connection.canStartOauth} />
+              {connection.connected ? <DisconnectButton /> : null}
+              <form action="/auth/sign-out" method="post">
+                <button
+                  className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
+                  type="submit"
+                >
+                  Ausloggen
+                </button>
+              </form>
+            </div>
+
+            {statusMessage ? (
+              <div
+                className={`mt-5 rounded-2xl border p-4 text-sm ${
+                  statusMessage.tone === "error"
+                    ? "border-red-200 bg-red-50 text-red-700"
+                    : statusMessage.tone === "success"
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+                      : "border-black/10 bg-black/5 text-black/70"
                 }`}
               >
-                {connection.hasProfileReadAll
-                  ? "profile:read_all aktiv"
-                  : "profile:read_all fehlt"}
-              </span>
-            </div>
-            <p className="mt-2 text-sm leading-6 text-black/68">
-              {connection.connected
-                ? `Verbundener Athlet: ${connection.label}`
-                : "Lege zuerst die Strava-Umgebungsvariablen an und verbinde dann deinen Account."}
-            </p>
-            {connection.athleteId ? (
-              <p className="mt-2 text-xs uppercase tracking-[0.08em] text-black/42">
-                Strava Athlete ID: {connection.athleteId}
-              </p>
+                {statusMessage.text}
+              </div>
             ) : null}
-            {expiresAt ? (
-              <p className="mt-2 text-sm leading-6 text-black/58">
-                Token gueltig bis: {expiresAt}
+          </article>
+
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Aktivitaeten gesamt</p>
+              <p className="mt-2 text-2xl font-semibold">{summary.totalActivities}</p>
+            </article>
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Gesamtstrecke</p>
+              <p className="mt-2 text-2xl font-semibold">{formatDistance(summary.totalDistanceMeters)}</p>
+            </article>
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Gesamtzeit</p>
+              <p className="mt-2 text-2xl font-semibold">{formatDuration(summary.totalMovingTimeSeconds)}</p>
+            </article>
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Letzte Aktivitaet</p>
+              <p className="mt-2 text-lg font-semibold">
+                {summary.lastActivityDate ? formatDate(summary.lastActivityDate) : "-"}
               </p>
-            ) : null}
-            {connection.grantedScopes.length > 0 ? (
-              <div className="mt-4">
-                <p className="text-xs font-semibold uppercase tracking-[0.08em] text-black/42">
-                  OAuth-Scopes
-                </p>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {connection.grantedScopes.map((scope) => (
-                    <span
-                      key={scope}
-                      className="rounded-full bg-black/5 px-3 py-1 text-xs font-medium text-black/62"
-                    >
-                      {scope}
-                    </span>
-                  ))}
+            </article>
+          </section>
+
+          <section className="grid gap-4 md:grid-cols-2">
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-5">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Letzte 7 Tage</p>
+              <p className="mt-2 text-sm text-black/72">{summary.last7Days.activities} Aktivitaeten</p>
+              <p className="text-sm text-black/72">{formatDistance(summary.last7Days.distanceMeters)}</p>
+              <p className="text-sm text-black/72">{formatDuration(summary.last7Days.movingTimeSeconds)}</p>
+            </article>
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-5">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Letzte 30 Tage</p>
+              <p className="mt-2 text-sm text-black/72">{summary.last30Days.activities} Aktivitaeten</p>
+              <p className="text-sm text-black/72">{formatDistance(summary.last30Days.distanceMeters)}</p>
+              <p className="text-sm text-black/72">{formatDuration(summary.last30Days.movingTimeSeconds)}</p>
+            </article>
+          </section>
+
+          <section className="rounded-2xl border border-black/10 bg-white/80 p-5">
+            <p className="text-xs uppercase tracking-[0.08em] text-black/45">Sportarten</p>
+            <div className="mt-3 grid gap-2">
+              {summary.sportBreakdown.slice(0, 6).map((sport) => (
+                <div key={sport.type} className="flex items-center justify-between text-sm">
+                  <span>{sport.type}</span>
+                  <span className="text-black/70">{Math.round(sport.percentage)}%</span>
                 </div>
-              </div>
-            ) : null}
-            {!connection.hasProfileReadAll && connection.connected ? (
-              <div className="mt-4 rounded-2xl border border-[color:var(--accent)]/18 bg-[color:var(--accent)]/8 p-4 text-sm leading-6 text-[color:var(--accent)]">
-                <p className="font-semibold">Profilzonen werden aktuell nicht geladen.</p>
-                <p className="mt-1">
-                  Fuer Herzfrequenz- und Power-Bereiche bitte die Strava-Verbindung
-                  einmal neu autorisieren, damit `athlete/zones` sauber genutzt werden kann.
-                </p>
-              </div>
-            ) : null}
-            {connection.hasProfileReadAll && connection.connected ? (
-              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm leading-6 text-emerald-700">
-                `profile:read_all` ist gespeichert und wird beim Export fuer `athlete/zones`
-                verwendet, sobald Strava Zonen zurueckliefert.
-              </div>
-            ) : null}
-          </div>
-          {statusMessage ? (
-            <div
-              className={`mt-6 rounded-3xl border p-4 text-sm ${
-                statusMessage.tone === "error"
-                  ? "border-red-200 bg-red-50 text-red-700"
-                  : statusMessage.tone === "success"
-                    ? "border-emerald-200 bg-emerald-50 text-emerald-700"
-                    : "border-black/10 bg-black/5 text-black/70"
-              }`}
-            >
-              {statusMessage.text}
+              ))}
+              {summary.sportBreakdown.length === 0 ? (
+                <p className="text-sm text-black/60">Noch keine Daten vorhanden.</p>
+              ) : null}
             </div>
-          ) : null}
-          <div className="mt-6 flex flex-wrap gap-3">
-            <ConnectButton
-              connected={connection.connected}
-              disabled={!connection.canStartOauth}
-            />
-            {connection.connected ? <DisconnectButton /> : null}
-            <form action="/auth/sign-out" method="post">
-              <button
-                className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
-                type="submit"
-              >
-                Ausloggen
-              </button>
-            </form>
-          </div>
+          </section>
+
+          <section className="rounded-2xl border border-black/10 bg-white/80 p-5">
+            <div className="flex items-center justify-between">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Letzte Aktivitaeten</p>
+              <Link className="text-sm font-medium text-[color:var(--accent)] hover:underline" href="/activities">
+                Alle anzeigen
+              </Link>
+            </div>
+            <div className="mt-3 space-y-2">
+              {summary.recentActivities.slice(0, 8).map((activity) => (
+                <Link
+                  key={activity.id}
+                  className="flex items-center justify-between rounded-xl border border-black/8 bg-white/85 px-3 py-2 text-sm hover:bg-black/[0.03]"
+                  href={`/activities/${activity.id}`}
+                >
+                  <span className="truncate pr-3">{activity.name}</span>
+                  <span className="whitespace-nowrap text-black/65">
+                    {activity.type} - {formatDistance(activity.distanceMeters)}
+                  </span>
+                </Link>
+              ))}
+              {summary.recentActivities.length === 0 ? (
+                <p className="text-sm text-black/60">Noch keine Aktivitaeten vorhanden.</p>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/6 p-5">
+            <p className="text-sm font-semibold text-[color:var(--accent)]">Naechste Schritte</p>
+            <div className="mt-2 flex flex-wrap gap-2 text-sm">
+              <Link className="rounded-full border border-[color:var(--accent)]/30 px-3 py-1" href="/activities">
+                Daten mit KI analysieren
+              </Link>
+              <Link className="rounded-full border border-[color:var(--accent)]/30 px-3 py-1" href="/activities">
+                Trainingsfortschritt ansehen
+              </Link>
+            </div>
+          </section>
         </section>
 
-        <ExportPanel connected={connection.connected} />
+        <aside className="space-y-6">
+          <ExportPanel connected={connection.connected} />
+        </aside>
       </div>
     </main>
   );

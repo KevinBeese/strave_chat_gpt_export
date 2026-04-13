@@ -14,11 +14,16 @@ export async function getCurrentSupabaseUser() {
   return user;
 }
 
-export async function ensureAppUserExists(userId: string) {
-  await prisma.user.upsert({
+export async function ensureAppUserExists(userId: string, email?: string | null) {
+  await prisma.profile.upsert({
     where: { id: userId },
-    update: {},
-    create: { id: userId },
+    update: {
+      email: email ?? "",
+    },
+    create: {
+      id: userId,
+      email: email ?? "",
+    },
   });
 }
 
@@ -33,7 +38,7 @@ export async function requireAuthenticatedUser() {
 
 export async function requireAppUserId() {
   const user = await requireAuthenticatedUser();
-  await ensureAppUserExists(user.id);
+  await ensureAppUserExists(user.id, user.email);
   return user.id;
 }
 
@@ -43,6 +48,6 @@ export async function getAuthenticatedAppUserId() {
     return null;
   }
 
-  await ensureAppUserExists(user.id);
+  await ensureAppUserExists(user.id, user.email);
   return user.id;
 }

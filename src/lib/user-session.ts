@@ -1,12 +1,23 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 
 import { cookies } from "next/headers";
+import { NextResponse } from "next/server";
 
 import { prisma } from "@/lib/prisma";
 
 const SESSION_COOKIE_NAME = "app_session";
 const SESSION_MAX_AGE_SECONDS = 60 * 60 * 24 * 30;
 const SESSION_REFRESH_WINDOW_SECONDS = 60 * 60 * 24 * 7;
+
+function getSessionCookieOptions() {
+  return {
+    httpOnly: true,
+    maxAge: SESSION_MAX_AGE_SECONDS,
+    path: "/",
+    sameSite: "lax" as const,
+    secure: process.env.NODE_ENV === "production",
+  };
+}
 
 function getSessionExpiryDate() {
   return new Date(Date.now() + SESSION_MAX_AGE_SECONDS * 1000);
@@ -18,17 +29,21 @@ function shouldRefreshSession(expiresAt: Date) {
 
 function setSessionCookie(value: string) {
   return cookies().then((cookieStore) => {
-    cookieStore.set(SESSION_COOKIE_NAME, value, {
-      httpOnly: true,
-      maxAge: SESSION_MAX_AGE_SECONDS,
-      path: "/",
-      sameSite: "lax",
-      secure: process.env.NODE_ENV === "production",
-    });
+    cookieStore.set(SESSION_COOKIE_NAME, value, getSessionCookieOptions());
   });
 }
 
-export async function getOrCreateCurrentUserId() {
+export function setSessionCookieOnResponse(response: NextResponse, value: string) {
+  response.cookies.set(SESSION_COOKIE_NAME, value, getSessionCookieOptions());
+}
+
+type UserSessionResult = {
+  userId: string;
+  sessionToken: string;
+  shouldSetCookie: boolean;
+};
+
+export async function getOrCreateCurrentUserSession(): Promise<UserSessionResult> {
   const cookieStore = await cookies();
   const sessionToken = cookieStore.get(SESSION_COOKIE_NAME)?.value;
 
@@ -54,10 +69,19 @@ export async function getOrCreateCurrentUserId() {
             expiresAt: refreshedExpiry,
           },
         });
-        await setSessionCookie(sessionToken);
+
+        return {
+          userId: session.userId,
+          sessionToken,
+          shouldSetCookie: true,
+        };
       }
 
-      return session.userId;
+      return {
+        userId: session.userId,
+        sessionToken,
+        shouldSetCookie: false,
+      };
     }
 
     if (session) {
@@ -71,8 +95,10 @@ export async function getOrCreateCurrentUserId() {
     cookieStore.delete(SESSION_COOKIE_NAME);
   }
 
-  const user = await prisma.user.create({
-    data: {},
+  const user = await prisma.profile.create({
+    data: {
+      id: randomUUID(),
+    },
     select: {
       id: true,
     },
@@ -85,7 +111,19 @@ export async function getOrCreateCurrentUserId() {
       expiresAt: getSessionExpiryDate(),
     },
   });
-  await setSessionCookie(newSessionToken);
 
-  return user.id;
+  return {
+    userId: user.id,
+    sessionToken: newSessionToken,
+    shouldSetCookie: true,
+  };
+}
+
+export async function getOrCreateCurrentUserId() {
+  const session = await getOrCreateCurrentUserSession();
+  if (session.shouldSetCookie) {
+    await setSessionCookie(session.sessionToken);
+  }
+
+  return session.userId;
 }

@@ -4,6 +4,7 @@ import { getCurrentSupabaseUser } from "@/lib/auth";
 
 function getAuthStatus(searchParams: Record<string, string | string[] | undefined>) {
   const error = searchParams.error;
+  const reason = typeof searchParams.reason === "string" ? searchParams.reason : null;
 
   if (typeof error === "string") {
     const messages: Record<string, string> = {
@@ -18,7 +19,10 @@ function getAuthStatus(searchParams: Record<string, string | string[] | undefine
 
     return {
       tone: error === "account_created" || error === "account_created_check_email" ? "success" : "error",
-      text: messages[error] ?? "Authentifizierung fehlgeschlagen.",
+      text:
+        error === "signup_failed" && reason
+          ? `${messages[error] ?? "Authentifizierung fehlgeschlagen."} (${reason})`
+          : (messages[error] ?? "Authentifizierung fehlgeschlagen."),
     };
   }
 
