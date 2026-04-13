@@ -28,10 +28,17 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const { activities, athleteZones, grantedScopes } = await syncAndLoadActivities(
+    const { activities, athleteZones, grantedScopes, syncMeta } = await syncAndLoadActivities(
       days,
       userId,
     );
+    if (syncMeta.partial) {
+      console.warn("Strava sync completed with partial enrichment", {
+        userId,
+        detailsPartial: syncMeta.detailsPartial,
+        zonesPartial: syncMeta.zonesPartial,
+      });
+    }
     const payload = await buildAndStoreExportPayload(
       activities,
       days,

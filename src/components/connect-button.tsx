@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+
 export function ConnectButton({
   disabled,
   connected,
@@ -7,13 +9,27 @@ export function ConnectButton({
   disabled: boolean;
   connected: boolean;
 }) {
+  const [isLoading, setIsLoading] = useState(false);
+  const isDisabled = disabled || isLoading;
+
   return (
-    <a
-      aria-disabled={disabled}
-      className="inline-flex items-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:translate-y-[-1px] aria-disabled:pointer-events-none aria-disabled:opacity-40"
-      href={disabled ? "#" : "/api/strava/connect"}
+    <button
+      className="inline-flex items-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-40"
+      disabled={isDisabled}
+      onClick={() => {
+        if (isDisabled) {
+          return;
+        }
+        setIsLoading(true);
+        window.location.assign("/api/strava/connect");
+      }}
+      type="button"
     >
-      {connected ? "Strava-Verbindung erneuern" : "Mit Strava verbinden"}
-    </a>
+      {isLoading
+        ? "Verbinde mit Strava..."
+        : connected
+          ? "Strava-Verbindung erneuern"
+          : "Mit Strava verbinden"}
+    </button>
   );
 }

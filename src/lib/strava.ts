@@ -39,6 +39,10 @@ import type {
 const STRAVA_API_BASE_URL = "https://www.strava.com/api/v3";
 const STRAVA_OAUTH_URL = "https://www.strava.com/oauth/token";
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 10 * 60 * 1000;
+const DETAIL_FETCH_CONCURRENCY = 1;
+const DETAIL_FETCH_DELAY_MS = 200;
+const ZONES_FETCH_CONCURRENCY = 2;
+const ZONES_FETCH_DELAY_MS = 120;
 
 type RateLimitInfo = {
   limit: string | null;
@@ -578,6 +582,23 @@ async function fetchActivityZones(accessToken: string, activityId: number) {
   }
 }
 
+async function fetchActivityDetail(accessToken: string, activityId: number) {
+  try {
+    const activity = await fetchStravaApi<StravaActivity>(`/activities/${activityId}`, {
+      accessToken,
+      allowUnauthorizedRetry: false,
+      silentUnauthorized: true,
+    });
+
+    return activity ?? null;
+  } catch (error) {
+    if (error instanceof StravaApiError && (error.status === 403 || error.status === 404)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
 function toFiniteNumberOrNull(value: unknown) {
   if (typeof value !== "number" || !Number.isFinite(value)) {
     return null;
@@ -719,7 +740,7 @@ function normalizeActivity(activity: StravaActivity): NormalizedActivity {
   };
 }
 
-export async function getRecentActivities(days: number, userId: string) {
+async function getRecentStravaActivities(days: number, userId: string) {
   const after = Math.floor((Date.now() - days * 24 * 60 * 60 * 1000) / 1000);
   const activities = await fetchStravaApi<StravaActivity[]>(
     `/athlete/activities?after=${after}&per_page=100`,
@@ -731,6 +752,11 @@ export async function getRecentActivities(days: number, userId: string) {
   if (!activities) {
     throw new Error("Unable to fetch recent Strava activities.");
   }
+  return activities;
+}
+
+export async function getRecentActivities(days: number, userId: string) {
+  const activities = await getRecentStravaActivities(days, userId);
   return activities.map(normalizeActivity);
 }
 
@@ -781,7 +807,7 @@ async function fetchActivitiesPaginated({
 export async function syncActivitiesForUser(
   userId: string,
 ) {
-  const { athleteId } = await getValidAccessToken(userId);
+  const { athleteId, accessToken } = await getValidAccessToken(userId);
   const latestStored = await prisma.activity.findFirst({
     where: {
       userId,
@@ -802,10 +828,19 @@ export async function syncActivitiesForUser(
     userId,
     afterUnixSeconds,
   });
-  const normalizedActivities = fetchedActivities.map(normalizeActivity);
+  const { activities: fetchedWithDetails, partial: detailsPartial } =
+    await enrichStravaActivitiesWithDetails(
+    fetchedActivities,
+    accessToken,
+  );
+  const normalizedActivities = fetchedWithDetails.map(normalizeActivity);
+  const upsertEntries: ActivityUpsertEntry[] = normalizedActivities.map((activity, index) => ({
+    activity,
+    rawActivity: fetchedWithDetails[index],
+  }));
 
   if (normalizedActivities.length > 0) {
-    await upsertActivities(userId, athleteId, normalizedActivities);
+    await upsertActivities(userId, athleteId, upsertEntries);
   }
 
   const totalInDb = await prisma.activity.count({
@@ -820,24 +855,75 @@ export async function syncActivitiesForUser(
     fetchedCount: fetchedActivities.length,
     upsertedCount: normalizedActivities.length,
     totalInDb,
+    partial: detailsPartial,
+    partialReason: detailsPartial ? ("detail_rate_limit" as const) : null,
+  };
+}
+
+type ActivityUpsertEntry = {
+  activity: NormalizedActivity;
+  rawActivity?: StravaActivity;
+};
+
+async function enrichStravaActivitiesWithDetails(
+  activities: StravaActivity[],
+  accessToken: string,
+) {
+  const concurrency = DETAIL_FETCH_CONCURRENCY;
+  const enriched = [...activities];
+  let cursor = 0;
+  let stopReason: "rate_limit" | null = null;
+
+  async function worker() {
+    while (cursor < enriched.length && stopReason === null) {
+      const index = cursor;
+      cursor += 1;
+
+      try {
+        const details = await fetchActivityDetail(accessToken, enriched[index].id);
+        if (details) {
+          enriched[index] = details;
+        }
+      } catch (error) {
+        if (error instanceof StravaApiError && error.isRateLimit) {
+          stopReason = "rate_limit";
+          break;
+        }
+        throw error;
+      }
+
+      if (DETAIL_FETCH_DELAY_MS > 0 && cursor < enriched.length && stopReason === null) {
+        await sleep(DETAIL_FETCH_DELAY_MS);
+      }
+    }
+  }
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, enriched.length) }, () => worker()),
+  );
+
+  return {
+    activities: enriched,
+    partial: stopReason !== null,
   };
 }
 
 async function upsertActivities(
   userId: string,
   athleteId: string,
-  activities: NormalizedActivity[],
+  entries: ActivityUpsertEntry[],
 ) {
-  const toRawJson = (entry: NormalizedActivity): Prisma.InputJsonValue =>
+  const toRawJson = (entry: unknown): Prisma.InputJsonValue =>
     JSON.parse(JSON.stringify(entry)) as Prisma.InputJsonValue;
   const concurrency = 2;
   let cursor = 0;
 
   async function worker() {
-    while (cursor < activities.length) {
+    while (cursor < entries.length) {
       const index = cursor;
       cursor += 1;
-      const activity = activities[index];
+      const { activity, rawActivity } = entries[index];
+      const rawJsonValue = toRawJson(rawActivity ?? activity);
 
       await prisma.activity.upsert({
         where: {
@@ -853,7 +939,7 @@ async function upsertActivities(
           movingTime: activity.movingTimeSeconds,
           elapsedTime: activity.elapsedTimeSeconds,
           timezone: null,
-          rawJson: toRawJson(activity),
+          rawJson: rawJsonValue,
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,
           startDate: new Date(activity.startDate),
@@ -888,7 +974,7 @@ async function upsertActivities(
           movingTime: activity.movingTimeSeconds,
           elapsedTime: activity.elapsedTimeSeconds,
           timezone: null,
-          rawJson: toRawJson(activity),
+          rawJson: rawJsonValue,
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,
           startDate: new Date(activity.startDate),
@@ -918,7 +1004,7 @@ async function upsertActivities(
   }
 
   await Promise.all(
-    Array.from({ length: Math.min(concurrency, activities.length) }, () => worker()),
+    Array.from({ length: Math.min(concurrency, entries.length) }, () => worker()),
   );
 }
 
@@ -1361,7 +1447,7 @@ async function enrichActivitiesWithZones(
   activities: NormalizedActivity[],
   accessToken: string,
 ) {
-  const concurrency = 4;
+  const concurrency = ZONES_FETCH_CONCURRENCY;
   const enriched = [...activities];
   let cursor = 0;
   let stopReason: "rate_limit" | null = null;
@@ -1384,6 +1470,10 @@ async function enrichActivitiesWithZones(
         }
         throw error;
       }
+
+      if (ZONES_FETCH_DELAY_MS > 0 && cursor < enriched.length && stopReason === null) {
+        await sleep(ZONES_FETCH_DELAY_MS);
+      }
     }
   }
 
@@ -1399,12 +1489,26 @@ async function enrichActivitiesWithZones(
 
 export async function syncAndLoadActivities(days: number, userId: string) {
   const { athleteId, accessToken, grantedScopes } = await getValidAccessToken(userId);
-  const recentActivities = await getRecentActivities(days, userId);
-  const { activities: enrichedActivities } = await enrichActivitiesWithZones(
+  const recentStravaActivities = await getRecentStravaActivities(days, userId);
+  const { activities: recentWithDetails, partial: detailsPartial } =
+    await enrichStravaActivitiesWithDetails(
+    recentStravaActivities,
+    accessToken,
+  );
+  const recentActivities = recentWithDetails.map(normalizeActivity);
+  const { activities: enrichedActivities, partial: zonesPartial } =
+    await enrichActivitiesWithZones(
     recentActivities,
     accessToken,
   );
-  await upsertActivities(userId, athleteId, enrichedActivities);
+  const rawActivityById = new Map<number, StravaActivity>(
+    recentWithDetails.map((activity) => [activity.id, activity]),
+  );
+  const upsertEntries: ActivityUpsertEntry[] = enrichedActivities.map((activity) => ({
+    activity,
+    rawActivity: rawActivityById.get(activity.id),
+  }));
+  await upsertActivities(userId, athleteId, upsertEntries);
   const athleteZones = await fetchAthleteZones(accessToken, grantedScopes);
 
   const afterDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -1425,6 +1529,11 @@ export async function syncAndLoadActivities(days: number, userId: string) {
     activities: storedActivities.map(fromStoredActivity),
     athleteZones,
     grantedScopes,
+    syncMeta: {
+      partial: detailsPartial || zonesPartial,
+      detailsPartial,
+      zonesPartial,
+    },
   };
 }
 

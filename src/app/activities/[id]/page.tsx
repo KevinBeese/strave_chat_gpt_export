@@ -123,7 +123,9 @@ export default async function ActivityDetailPage({
   const calories =
     typeof activity.calories === "number" && Number.isFinite(activity.calories)
       ? activity.calories
-      : null;
+      : rawActivity
+        ? readNumberFromRaw(rawActivity, "calories")
+        : null;
   const providerNp =
     providerMetrics && providerMetrics.normalizedPowerWatts !== null
       ? providerMetrics.normalizedPowerWatts
@@ -240,12 +242,12 @@ export default async function ActivityDetailPage({
               </p>
             </div>
           ) : null}
-          {calories !== null ? (
-            <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
-              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Kalorien</p>
-              <p className="mt-1 text-base font-semibold">{Math.round(calories)} kcal</p>
-            </div>
-          ) : null}
+          <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
+            <p className="text-xs uppercase tracking-[0.08em] text-black/45">Kalorien</p>
+            <p className="mt-1 text-base font-semibold">
+              {calories !== null ? `${Math.round(calories)} kcal` : "-"}
+            </p>
+          </div>
           {providerNp !== null ? (
             <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
               <p className="text-xs uppercase tracking-[0.08em] text-black/45">NP (Provider)</p>

@@ -278,9 +278,12 @@ export default async function ActivitiesPage({
                   {toFiniteNumber(activity.maxWatts)?.toFixed(0) ?? "-"} W
                 </p>
               ) : null}
-              {toFiniteNumber(activity.calories) !== null ? (
-                <p>Kalorien: {toFiniteNumber(activity.calories)?.toFixed(0)} kcal</p>
-              ) : null}
+              <p>
+                Kalorien:{" "}
+                {toFiniteNumber(activity.calories) !== null
+                  ? `${toFiniteNumber(activity.calories)?.toFixed(0)} kcal`
+                  : "-"}
+              </p>
             </div>
           </Link>
         ))}
