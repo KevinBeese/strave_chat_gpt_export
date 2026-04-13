@@ -236,8 +236,8 @@ function toPromptLine(activity: NormalizedActivity, index: number) {
     );
   }
 
-  if (activity.kilojoules) {
-    lines.push(`- Arbeit: ${Math.round(activity.kilojoules)} kJ`);
+  if (activity.calories !== null) {
+    lines.push(`- Kalorien: ${Math.round(activity.calories)} kcal`);
   }
 
   if (heartRateZones) {

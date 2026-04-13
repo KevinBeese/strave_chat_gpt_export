@@ -20,7 +20,7 @@ export function AppNav({ current }: AppNavProps) {
             key={item.key}
             className={
               isCurrent
-                ? "rounded-full bg-black/90 px-4 py-2 font-medium text-white"
+                ? "rounded-full bg-[color:var(--accent)] px-4 py-2 font-medium text-[color:var(--accent-foreground)] shadow-[0_8px_20px_rgba(252,76,2,0.25)]"
                 : "rounded-full border border-black/10 bg-white px-4 py-2 text-black/75 hover:bg-black/5"
             }
             href={item.href}

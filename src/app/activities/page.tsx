@@ -146,7 +146,7 @@ export default async function ActivitiesPage({
         averageHeartrate: true,
         maxHeartrate: true,
         averageWatts: true,
-        kilojoules: true,
+        maxWatts: true,
         calories: true,
       },
     }),
@@ -264,9 +264,23 @@ export default async function ActivitiesPage({
 
             <div className="mt-3 grid gap-2 text-sm text-black/72 md:grid-cols-4">
               <p>Hoehenmeter: {Math.round(activity.elevationGainMeters)} m</p>
-              <p>HF avg/max: {toFiniteNumber(activity.averageHeartrate)?.toFixed(0) ?? "-"}/{toFiniteNumber(activity.maxHeartrate)?.toFixed(0) ?? "-"}</p>
-              <p>Leistung avg: {toFiniteNumber(activity.averageWatts)?.toFixed(0) ?? "-"} W</p>
-              <p>kJ / kcal: {toFiniteNumber(activity.kilojoules)?.toFixed(0) ?? "-"} / {toFiniteNumber(activity.calories)?.toFixed(0) ?? "-"}</p>
+              {toFiniteNumber(activity.averageHeartrate) !== null ||
+              toFiniteNumber(activity.maxHeartrate) !== null ? (
+                <p>
+                  HF avg/max: {toFiniteNumber(activity.averageHeartrate)?.toFixed(0) ?? "-"}/
+                  {toFiniteNumber(activity.maxHeartrate)?.toFixed(0) ?? "-"}
+                </p>
+              ) : null}
+              {toFiniteNumber(activity.averageWatts) !== null ||
+              toFiniteNumber(activity.maxWatts) !== null ? (
+                <p>
+                  Leistung avg/max: {toFiniteNumber(activity.averageWatts)?.toFixed(0) ?? "-"}/
+                  {toFiniteNumber(activity.maxWatts)?.toFixed(0) ?? "-"} W
+                </p>
+              ) : null}
+              {toFiniteNumber(activity.calories) !== null ? (
+                <p>Kalorien: {toFiniteNumber(activity.calories)?.toFixed(0)} kcal</p>
+              ) : null}
             </div>
           </Link>
         ))}
