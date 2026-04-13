@@ -5,12 +5,18 @@ import {
   buildAndStoreExportPayload,
   syncAndLoadActivities,
 } from "@/lib/strava";
-import { getOrCreateCurrentUserId } from "@/lib/user-session";
+import { getAuthenticatedAppUserId } from "@/lib/auth";
 
 const allowedDays = new Set([7, 14, 30]);
 
 export async function GET(request: NextRequest) {
-  const userId = await getOrCreateCurrentUserId();
+  const userId = await getAuthenticatedAppUserId();
+  if (!userId) {
+    return NextResponse.json(
+      { error: "Bitte zuerst einloggen.", code: "unauthorized" },
+      { status: 401 },
+    );
+  }
   const daysParam = request.nextUrl.searchParams.get("days") ?? "7";
   const days = Number(daysParam);
 

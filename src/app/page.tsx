@@ -2,9 +2,9 @@ import Link from "next/link";
 
 const features = [
   {
-    title: "Sessionbasierter Login",
+    title: "Supabase Account Login",
     description:
-      "Jede Browser-Session bekommt einen eigenen User-Kontext mit separater Strava-Verbindung.",
+      "Jeder User loggt sich mit eigenem Konto ein und sieht danach nur seine Daten.",
     symbol: "01",
   },
   {
@@ -41,9 +41,9 @@ export default function HomePage() {
             <div className="mt-8 flex flex-wrap gap-4">
               <Link
                 className="inline-flex items-center gap-2 rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:translate-y-[-1px]"
-                href="/dashboard"
+                href="/auth"
               >
-                Zum Dashboard
+                Login starten
                 <span aria-hidden="true">-&gt;</span>
               </Link>
               <a
@@ -61,7 +61,7 @@ export default function HomePage() {
             <ul className="mt-4 space-y-3 text-sm leading-6 text-black/72">
               <li>Next.js App Router</li>
               <li>TypeScript fuer Frontend und Backend</li>
-              <li>SQLite + Prisma fuer lokale Speicherung</li>
+              <li>Supabase Auth + Prisma fuer usergebundene Daten</li>
               <li>zod fuer Runtime-Validierung</li>
               <li>Tailwind CSS fuer schnelles UI</li>
             </ul>
