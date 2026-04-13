@@ -1,5 +1,4 @@
 import { prisma } from "@/lib/prisma";
-import { getOrCreateCurrentUserId } from "@/lib/user-session";
 
 function parseScopes(scope: string | null | undefined) {
   return (scope ?? "")
@@ -8,9 +7,8 @@ function parseScopes(scope: string | null | undefined) {
     .filter(Boolean);
 }
 
-export async function getConnectionStatus() {
+export async function getConnectionStatus(userId: string) {
   try {
-    const userId = await getOrCreateCurrentUserId();
     const connection = await prisma.stravaConnection.findFirst({
       where: {
         userId,

@@ -1,11 +1,15 @@
 import { NextResponse } from "next/server";
 
+import { getAuthenticatedAppUserId } from "@/lib/auth";
 import { getEnv } from "@/lib/env";
-import { getOrCreateCurrentUserId } from "@/lib/user-session";
 
 export async function GET(request: Request) {
   try {
-    await getOrCreateCurrentUserId();
+    const userId = await getAuthenticatedAppUserId();
+    if (!userId) {
+      return NextResponse.redirect(new URL("/auth?next=/dashboard", request.url));
+    }
+
     const env = getEnv();
     const state = crypto.randomUUID();
     const params = new URLSearchParams({

@@ -1,13 +1,16 @@
 import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
+import { getAuthenticatedAppUserId } from "@/lib/auth";
 import { exchangeCodeForToken, upsertStravaConnection } from "@/lib/strava";
-import { getOrCreateCurrentUserId } from "@/lib/user-session";
 
 export async function GET(request: NextRequest) {
-  let userId: string;
+  let userId: string | null = null;
   try {
-    userId = await getOrCreateCurrentUserId();
+    userId = await getAuthenticatedAppUserId();
+    if (!userId) {
+      return NextResponse.redirect(new URL("/auth?next=/dashboard", request.url));
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown session bootstrap error";
     const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
@@ -16,6 +19,9 @@ export async function GET(request: NextRequest) {
     }
 
     return NextResponse.redirect(new URL("/dashboard?error=auth_setup_failed", request.url));
+  }
+  if (!userId) {
+    return NextResponse.redirect(new URL("/auth?next=/dashboard", request.url));
   }
 
   const cookieStore = await cookies();
@@ -27,16 +33,18 @@ export async function GET(request: NextRequest) {
 
   cookieStore.delete("strava_oauth_state");
 
+  const redirectWithSession = (url: URL) => NextResponse.redirect(url);
+
   if (error) {
-    return NextResponse.redirect(new URL(`/dashboard?error=${error}`, request.url));
+    return redirectWithSession(new URL(`/dashboard?error=${error}`, request.url));
   }
 
   if (!state || !storedState || state !== storedState) {
-    return NextResponse.redirect(new URL("/dashboard?error=invalid_state", request.url));
+    return redirectWithSession(new URL("/dashboard?error=invalid_state", request.url));
   }
 
   if (!code) {
-    return NextResponse.redirect(new URL("/dashboard?error=missing_code", request.url));
+    return redirectWithSession(new URL("/dashboard?error=missing_code", request.url));
   }
 
   try {
@@ -64,8 +72,8 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    return NextResponse.redirect(redirectUrl);
+    return redirectWithSession(redirectUrl);
   }
 
-  return NextResponse.redirect(new URL("/dashboard?connected=1", request.url));
+  return redirectWithSession(new URL("/dashboard?connected=1", request.url));
 }

@@ -1,6 +1,7 @@
 import { ConnectButton } from "@/components/connect-button";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
+import { ensureAppUserExists, requireAuthenticatedUser } from "@/lib/auth";
 import { getConnectionStatus } from "@/lib/connection-status";
 
 export const dynamic = "force-dynamic";
@@ -8,6 +9,7 @@ export const dynamic = "force-dynamic";
 function getStatusMessage(searchParams: Record<string, string | string[] | undefined>) {
   const connected = searchParams.connected;
   const disconnected = searchParams.disconnected;
+  const auth = searchParams.auth;
   const error = searchParams.error;
 
   if (connected === "1") {
@@ -24,6 +26,13 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
     };
   }
 
+  if (auth === "account_created") {
+    return {
+      tone: "success" as const,
+      text: "Konto erstellt und erfolgreich eingeloggt.",
+    };
+  }
+
   if (typeof error === "string") {
     const messages: Record<string, string> = {
       access_denied: "Die Strava-Freigabe wurde abgebrochen.",
@@ -34,6 +43,7 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
       db_write_failed: "OAuth war erfolgreich, aber die Verbindung konnte nicht gespeichert werden. Pruefe auf Vercel die Datenbank-Konfiguration (SQLite-Dateipfade sind dort meist nicht beschreibbar).",
       db_schema_missing: "Die Datenbank ist erreichbar, aber das Prisma-Schema fehlt (P2021). Auf Vercel mit /tmp muss das Schema bei jedem Start neu erstellt werden; nutze besser Postgres.",
       disconnect_failed: "Die Verbindung konnte nicht getrennt werden.",
+      unauthorized: "Bitte logge dich zuerst ein.",
     };
 
     return {
@@ -61,8 +71,10 @@ export default async function DashboardPage({
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  const user = await requireAuthenticatedUser();
+  await ensureAppUserExists(user.id);
   const resolvedSearchParams = await searchParams;
-  const connection = await getConnectionStatus();
+  const connection = await getConnectionStatus(user.id);
   const statusMessage = getStatusMessage(resolvedSearchParams);
   const expiresAt = formatExpiry(connection.expiresAt);
 
@@ -77,10 +89,13 @@ export default async function DashboardPage({
             Strava-Verbindung verwalten
           </h1>
           <p className="mt-4 text-sm leading-6 text-black/72">
-            Jede Browser-Session nutzt jetzt einen eigenen User-Kontext mit
-            separater Strava-Verbindung. Nach der OAuth-Freigabe kannst du die
-            letzten 7, 14 oder 30 Tage exportieren.
+            Dein Account ist jetzt die Basis fuer alle Exporte. Nach der OAuth-Freigabe
+            kannst du die letzten 7, 14 oder 30 Tage exportieren, und beim naechsten
+            Login siehst du wieder genau deine Daten.
           </p>
+          <div className="mt-4 rounded-2xl border border-black/10 bg-black/[0.03] px-4 py-3 text-sm text-black/70">
+            Eingeloggt als <span className="font-semibold">{user.email ?? user.id}</span>
+          </div>
           <div className="mt-6 rounded-3xl border border-[color:var(--border)] bg-white/85 p-5 shadow-[0_10px_30px_rgba(29,27,22,0.05)]">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
@@ -168,6 +183,14 @@ export default async function DashboardPage({
               disabled={!connection.canStartOauth}
             />
             {connection.connected ? <DisconnectButton /> : null}
+            <form action="/auth/sign-out" method="post">
+              <button
+                className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
+                type="submit"
+              >
+                Ausloggen
+              </button>
+            </form>
           </div>
         </section>
 

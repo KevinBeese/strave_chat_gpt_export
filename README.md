@@ -1,11 +1,12 @@
 # Strava GPT Export
 
-MVP, um Strava-Aktivitaeten per sessionbasiertem User-Flow zu laden und in ein ChatGPT-taugliches Format zu exportieren.
+MVP, um Strava-Aktivitaeten pro Supabase-Account zu laden und in ein ChatGPT-taugliches Format zu exportieren.
 
 ## Stack
 
 - Next.js
 - TypeScript
+- Supabase Auth
 - Prisma
 - PostgreSQL
 - zod
@@ -13,8 +14,8 @@ MVP, um Strava-Aktivitaeten per sessionbasiertem User-Flow zu laden und in ein C
 
 ## MVP-Funktionen
 
-- Strava OAuth Login
-- Sessionbasierter User-Flow (pro Browser-Session)
+- E-Mail/Passwort Login ueber Supabase Auth
+- Strava OAuth nur fuer eingeloggte Accounts
 - Speicherung von Token pro User in PostgreSQL
 - Export der letzten 7 Tage
 - Ausgabe als JSON
@@ -34,7 +35,14 @@ npm install
 cp .env.example .env.local
 ```
 
-3. In Strava eine Application anlegen und diese Werte eintragen:
+3. Supabase Auth konfigurieren:
+- In Supabase unter **Authentication > Providers > Email** aktivieren
+- Optional: E-Mail-Bestaetigung je nach Wunsch aktivieren/deaktivieren
+- In `.env.local` setzen:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+4. In Strava eine Application anlegen und diese Werte eintragen:
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URI`
@@ -45,19 +53,19 @@ cp .env.example .env.local
 - Als Authorization Callback Domain in Strava fuer den lokalen Test: `localhost`
 - Als Callback URL in Strava: `http://localhost:3000/api/strava/callback`
 
-4. Prisma Client generieren:
+5. Prisma Client generieren:
 
 ```bash
 npm run prisma:setup
 ```
 
-5. Dev-Server starten:
+6. Dev-Server starten:
 
 ```bash
 npm run dev
 ```
 
-Danach ist die App unter `http://localhost:3000` erreichbar.
+Danach ist die App unter `http://localhost:3000` erreichbar. Login erfolgt ueber `/auth`, danach kannst du auf `/dashboard` Strava verbinden.
 
 ## Go-Live (Docker + PostgreSQL)
 
@@ -110,26 +118,32 @@ Fuer Vercel oder andere serverlose Umgebungen nutze eine verwaltete Postgres-DB 
 
 ## Supabase Setup (Vercel)
 
-Wenn du Supabase statt Vercel Postgres nutzt, funktioniert der Strava-Login genauso.
+Supabase wird hier fuer zwei Dinge genutzt: Auth (Login) und optional PostgreSQL.
 
-1. Erstelle in Supabase ein Projekt und oeffne **Project Settings > Database**.
-2. Kopiere den Postgres-Connection-String (Transaktions- oder Session-Pooler mit SSL).
-3. Setze in Vercel unter **Settings > Environment Variables**:
+1. Erstelle in Supabase ein Projekt.
+2. Unter **Authentication > URL Configuration** deine App-URL eintragen (z. B. `https://<deine-vercel-domain>`).
+3. Unter **Project Settings > API** kopieren:
+   - `NEXT_PUBLIC_SUPABASE_URL`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+4. Optional unter **Project Settings > Database** den Postgres-Connection-String kopieren.
+5. Setze in Vercel unter **Settings > Environment Variables**:
+   - `NEXT_PUBLIC_SUPABASE_URL=<deine-supabase-url>`
+   - `NEXT_PUBLIC_SUPABASE_ANON_KEY=<dein-anon-key>`
    - `DATABASE_URL=<dein-supabase-postgres-string>`
    - `APP_URL=https://<deine-vercel-domain>`
    - `STRAVA_REDIRECT_URI=https://<deine-vercel-domain>/api/strava/callback`
    - `SESSION_SECRET=<langes-zufaelliges-secret>`
-4. Lege das Prisma-Schema einmalig an:
+6. Lege das Prisma-Schema einmalig an:
 
 ```bash
 DATABASE_URL="<dein-supabase-postgres-string>" npx prisma db push
 ```
 
-5. Redeploy auf Vercel und teste OAuth neu.
+7. Redeploy auf Vercel und teste zuerst Login (`/auth`), danach Strava OAuth.
 
-Hinweis: Wenn `P2021` oder `db_schema_missing` erscheint, wurde Schritt 4 noch nicht erfolgreich ausgefuehrt.
+Hinweis: Wenn `P2021` oder `db_schema_missing` erscheint, wurde Schritt 6 noch nicht erfolgreich ausgefuehrt.
 
-## Lokaler OAuth-Test
+## Lokaler Auth + OAuth-Test
 
 1. `cp .env.example .env.local`
 2. Trage deine echte Strava `Client ID` und dein `Client Secret` ein
@@ -137,12 +151,12 @@ Hinweis: Wenn `P2021` oder `db_schema_missing` erscheint, wurde Schritt 4 noch n
 4. Lasse `STRAVA_REDIRECT_URI` auf `http://localhost:3000/api/strava/callback`
 5. Starte `npm run prisma:setup`
 6. Starte `npm run dev`
-7. Oeffne `http://localhost:3000/dashboard`
-8. Klicke auf `Mit Strava verbinden`
+7. Oeffne `http://localhost:3000/auth` und lege einen User an oder logge dich ein
+8. Oeffne `http://localhost:3000/dashboard`
+9. Klicke auf `Mit Strava verbinden`
 
 ## Naechste Schritte
 
-- optionaler Login-Provider (z. B. Auth.js) fuer persistente Accounts
 - Export als Datei-Download ergaenzen
 - gespeicherte Exporte historisieren
 - spaeter Streams und weitere Metriken anbinden
