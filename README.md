@@ -56,7 +56,7 @@ cp .env.example .env.local
 Optional: Wahoo Cloud API anbinden:
 - `WAHOO_CLIENT_ID`
 - `WAHOO_CLIENT_SECRET`
-- `WAHOO_REDIRECT_URI` (lokal z. B. `http://localhost:3000/api/wahoo/callback`)
+- `WAHOO_REDIRECT_URI` (lokal z. B. `http://localhost:3000/api/auth/wahoo/callback`)
 - OAuth-Startpunkt: `http://localhost:3000/api/wahoo/connect`
 
 5. Prisma Client generieren:
@@ -104,7 +104,7 @@ docker run --rm -p 3000:3000 \
 - Optional:
   - `WAHOO_CLIENT_ID`
   - `WAHOO_CLIENT_SECRET`
-  - `WAHOO_REDIRECT_URI`: `https://<deine-domain>/api/wahoo/callback`
+  - `WAHOO_REDIRECT_URI`: `https://<deine-domain>/api/auth/wahoo/callback`
 
 ### 3. Strava App richtig konfigurieren
 
