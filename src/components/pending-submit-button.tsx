@@ -20,13 +20,16 @@ export function PendingSubmitButton({
   return (
     <button
       className={className}
-      disabled={disabled || isPending}
+      disabled={disabled}
       onClick={(event) => {
         const form = event.currentTarget.form;
         if (form && !form.checkValidity()) {
           form.reportValidity();
           return;
         }
+
+        // Keep the button submittable; only switch the label for feedback.
+        // Disabling here can cancel form submission in some browsers.
         setIsPending(true);
       }}
       type="submit"
