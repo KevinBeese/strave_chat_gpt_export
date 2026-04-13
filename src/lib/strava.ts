@@ -30,6 +30,7 @@ import type {
 import type {
   StravaActivity,
   StravaActivityZone,
+  StravaAthleteProfile,
   StravaAthleteZones,
   StravaTokenResponse,
   TokenUpsertInput,
@@ -401,6 +402,30 @@ async function getValidAccessToken(userId: string) {
     athleteId: String(refreshed.athlete.id),
     grantedScopes: parseGrantedScopes(refreshed.scope),
   };
+}
+
+export async function getCurrentAthleteProfile(userId: string) {
+  try {
+    const { accessToken } = await getValidAccessToken(userId);
+    const athlete = await fetchStravaApi<StravaAthleteProfile>("/athlete", {
+      accessToken,
+      allowUnauthorizedRetry: false,
+      silentUnauthorized: true,
+    });
+
+    if (!athlete) {
+      return null;
+    }
+
+    return {
+      id: athlete.id,
+      displayName: `${athlete.firstname ?? ""} ${athlete.lastname ?? ""}`.trim(),
+      username: athlete.username ?? null,
+      avatarUrl: athlete.profile_medium ?? athlete.profile ?? null,
+    };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeActivityZones(zones: StravaActivityZone[] | null): ActivityZone[] {

@@ -80,6 +80,7 @@ model Activity {
 model Profile {
   id                String            @id @db.Uuid
   email             String            @default("")
+  displayName       String?
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   sessions          UserSession[]
