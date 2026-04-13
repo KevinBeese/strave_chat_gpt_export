@@ -5,11 +5,12 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 model StravaConnection {
   id            String   @id @default(cuid())
-  userId        String?  @unique
+  userId        String   @unique @db.Uuid
   athleteId     String
   athleteName   String?
   accessToken   String
@@ -19,31 +20,33 @@ model StravaConnection {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, athleteId])
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
 model ExportSnapshot {
   id           String   @id @default(cuid())
-  userId       String?
+  userId       String   @db.Uuid
   rangeStart   DateTime
   rangeEnd     DateTime
   activityJson String
   createdAt    DateTime @default(now())
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId, createdAt])
 }
 
-model StravaActivity {
-  id                 String   @id @default(cuid())
-  userId             String?
-  stravaActivityId   BigInt
+model Activity {
+  id                 BigInt   @id
+  userId             String   @db.Uuid
   athleteId          String
   name               String
   type               String
+  distance           Float
+  movingTime         Int
+  elapsedTime        Int
+  timezone           String?
+  rawJson            Json
   classification     String
   analysisLabel      String
   startDate          DateTime
@@ -68,32 +71,32 @@ model StravaActivity {
   createdAt          DateTime @default(now())
   updatedAt          DateTime @updatedAt
 
-  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, stravaActivityId])
   @@index([athleteId, startDate])
   @@index([userId, startDate])
 }
 
-model User {
-  id                String            @id @default(cuid())
+model Profile {
+  id                String            @id @db.Uuid
+  email             String            @default("")
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   sessions          UserSession[]
   stravaConnection  StravaConnection?
   exportSnapshots   ExportSnapshot[]
-  stravaActivities  StravaActivity[]
+  activities        Activity[]
 }
 
 model UserSession {
   id             String   @id @default(cuid())
   sessionToken   String   @unique
-  userId         String
+  userId         String   @db.Uuid
   expiresAt      DateTime
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user Profile @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([expiresAt])

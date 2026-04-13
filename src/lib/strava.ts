@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import type { Prisma } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { createExportPayload } from "@/lib/export-format";
 import { decryptToken, encryptToken } from "@/lib/token-crypto";
@@ -708,25 +709,120 @@ export async function getRecentActivities(days: number, userId: string) {
   return activities.map(normalizeActivity);
 }
 
+async function fetchActivitiesPaginated({
+  userId,
+  afterUnixSeconds,
+  perPage = 100,
+  maxPages = 200,
+}: {
+  userId: string;
+  afterUnixSeconds?: number;
+  perPage?: number;
+  maxPages?: number;
+}) {
+  const activities: StravaActivity[] = [];
+
+  for (let page = 1; page <= maxPages; page += 1) {
+    const params = new URLSearchParams({
+      per_page: String(perPage),
+      page: String(page),
+    });
+    if (typeof afterUnixSeconds === "number") {
+      params.set("after", String(afterUnixSeconds));
+    }
+
+    const chunk = await fetchStravaApi<StravaActivity[]>(
+      `/athlete/activities?${params.toString()}`,
+      {
+        userId,
+        allowUnauthorizedRetry: true,
+      },
+    );
+
+    if (!chunk || chunk.length === 0) {
+      break;
+    }
+
+    activities.push(...chunk);
+
+    if (chunk.length < perPage) {
+      break;
+    }
+  }
+
+  return activities;
+}
+
+export async function syncActivitiesForUser(
+  userId: string,
+) {
+  const { athleteId } = await getValidAccessToken(userId);
+  const latestStored = await prisma.activity.findFirst({
+    where: {
+      userId,
+      athleteId,
+    },
+    orderBy: {
+      startDate: "desc",
+    },
+    select: {
+      startDate: true,
+    },
+  });
+
+  const afterUnixSeconds = latestStored?.startDate
+    ? Math.floor(latestStored.startDate.getTime() / 1000)
+    : undefined;
+  const fetchedActivities = await fetchActivitiesPaginated({
+    userId,
+    afterUnixSeconds,
+  });
+  const normalizedActivities = fetchedActivities.map(normalizeActivity);
+
+  if (normalizedActivities.length > 0) {
+    await upsertActivities(userId, athleteId, normalizedActivities);
+  }
+
+  const totalInDb = await prisma.activity.count({
+    where: {
+      userId,
+      athleteId,
+    },
+  });
+
+  return {
+    mode: latestStored ? ("incremental" as const) : ("initial" as const),
+    fetchedCount: fetchedActivities.length,
+    upsertedCount: normalizedActivities.length,
+    totalInDb,
+  };
+}
+
 async function upsertActivities(
   userId: string,
   athleteId: string,
   activities: NormalizedActivity[],
 ) {
+  const toRawJson = (entry: NormalizedActivity): Prisma.InputJsonValue =>
+    JSON.parse(JSON.stringify(entry)) as Prisma.InputJsonValue;
+
   await Promise.all(
     activities.map((activity) =>
-      prisma.stravaActivity.upsert({
+      prisma.activity.upsert({
         where: {
-          userId_stravaActivityId: {
-            userId,
-            stravaActivityId: BigInt(activity.id),
-          },
+          id: BigInt(activity.id),
         },
         update: {
+          id: BigInt(activity.id),
           userId,
           athleteId,
           name: activity.name,
           type: activity.type,
+          distance: activity.distanceMeters,
+          movingTime: activity.movingTimeSeconds,
+          elapsedTime: activity.elapsedTimeSeconds,
+          timezone: null,
+          rawJson: toRawJson(activity),
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,
           startDate: new Date(activity.startDate),
@@ -752,11 +848,16 @@ async function upsertActivities(
           providerMetricsJson: JSON.stringify(activity.providerMetrics),
         },
         create: {
+          id: BigInt(activity.id),
           userId,
-          stravaActivityId: BigInt(activity.id),
           athleteId,
           name: activity.name,
           type: activity.type,
+          distance: activity.distanceMeters,
+          movingTime: activity.movingTimeSeconds,
+          elapsedTime: activity.elapsedTimeSeconds,
+          timezone: null,
+          rawJson: toRawJson(activity),
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,
           startDate: new Date(activity.startDate),
@@ -801,7 +902,7 @@ function parseProviderMetrics(
 }
 
 function fromStoredActivity(
-  activity: Awaited<ReturnType<typeof prisma.stravaActivity.findMany>>[number],
+  activity: Awaited<ReturnType<typeof prisma.activity.findMany>>[number],
 ): NormalizedActivity {
   const providerMetrics =
     parseProviderMetrics(activity.providerMetricsJson) ?? {
@@ -816,7 +917,7 @@ function fromStoredActivity(
       maxTempC: null,
     };
   const fallbackIntensityPercent = getActivityIntensity({
-    id: Number(activity.stravaActivityId),
+    id: Number(activity.id),
     name: activity.name,
     type: activity.type,
     classification: activity.classification,
@@ -859,7 +960,7 @@ function fromStoredActivity(
         );
 
   return {
-    id: Number(activity.stravaActivityId),
+    id: Number(activity.id),
     name: activity.name,
     type: activity.type,
     classification: activity.classification,
@@ -1272,7 +1373,7 @@ export async function syncAndLoadActivities(days: number, userId: string) {
   const athleteZones = await fetchAthleteZones(accessToken, grantedScopes);
 
   const afterDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const storedActivities = await prisma.stravaActivity.findMany({
+  const storedActivities = await prisma.activity.findMany({
     where: {
       userId,
       athleteId,
