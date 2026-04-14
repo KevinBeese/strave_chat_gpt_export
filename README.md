@@ -57,6 +57,7 @@ Optional: Wahoo Cloud API anbinden:
 - `WAHOO_CLIENT_ID`
 - `WAHOO_CLIENT_SECRET`
 - `WAHOO_REDIRECT_URI` (lokal z. B. `http://localhost:3000/api/auth/wahoo/callback`)
+- `WAHOO_OAUTH_SCOPES` (optional, Default: `user_read workouts_read`)
 - OAuth-Startpunkt: `http://localhost:3000/api/wahoo/connect`
 
 5. Prisma Client generieren:
@@ -105,6 +106,12 @@ docker run --rm -p 3000:3000 \
   - `WAHOO_CLIENT_ID`
   - `WAHOO_CLIENT_SECRET`
   - `WAHOO_REDIRECT_URI`: `https://<deine-domain>/api/auth/wahoo/callback`
+  - `WAHOO_OAUTH_SCOPES`: z. B. `user_read workouts_read`
+
+Hinweis zu Wahoo OAuth Scopes:
+- Wenn Wahoo beim Login `invalid_scope` oder `Der angeforderte Bereich ist ungueltig` meldet,
+  setze `WAHOO_OAUTH_SCOPES` auf die in deinem Wahoo Developer Portal freigegebenen Scopes.
+- Fuer den Sync wird mindestens `user_read workouts_read` benoetigt.
 
 ### 3. Strava App richtig konfigurieren
 
