@@ -4,6 +4,17 @@ import { getAuthenticatedAppUserId } from "@/lib/auth";
 import { canStartWahooOauth } from "@/lib/wahoo";
 
 const WAHOO_OAUTH_AUTHORIZE_URL = "https://api.wahooligan.com/oauth/authorize";
+const DEFAULT_WAHOO_OAUTH_SCOPES = "user_read workouts_read";
+
+function resolveWahooOauthScopeParam() {
+  const configuredScopes = process.env.WAHOO_OAUTH_SCOPES;
+
+  return (configuredScopes ?? DEFAULT_WAHOO_OAUTH_SCOPES)
+    .split(/[\s,]+/)
+    .map((scope) => scope.trim())
+    .filter(Boolean)
+    .join(" ");
+}
 
 export async function GET(request: Request) {
   try {
@@ -21,7 +32,7 @@ export async function GET(request: Request) {
       client_id: process.env.WAHOO_CLIENT_ID!,
       redirect_uri: process.env.WAHOO_REDIRECT_URI!,
       response_type: "code",
-      scope: "user_read workouts_read email",
+      scope: resolveWahooOauthScopeParam(),
       state,
     });
 

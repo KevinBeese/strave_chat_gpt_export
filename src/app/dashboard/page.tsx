@@ -63,6 +63,8 @@ function getStatusMessage(searchParams: Record<string, string | string[] | undef
       disconnect_failed: "Die Verbindung konnte nicht getrennt werden.",
       wahoo_invalid_state: "Die Rueckkehr von Wahoo konnte nicht verifiziert werden.",
       wahoo_missing_code: "Wahoo hat keinen gueltigen OAuth-Code zurueckgegeben.",
+      wahoo_invalid_scope:
+        "Wahoo OAuth meldet ungueltige Scopes. Bitte pruefe WAHOO_OAUTH_SCOPES in den Environment-Variablen.",
       wahoo_oauth_failed: "Der Austausch des Wahoo-OAuth-Tokens ist fehlgeschlagen.",
       wahoo_auth_setup_failed: "Die Wahoo-Initialisierung ist fehlgeschlagen.",
       wahoo_disconnect_failed: "Die Wahoo-Verbindung konnte nicht getrennt werden.",
