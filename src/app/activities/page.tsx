@@ -2,13 +2,17 @@ import Link from "next/link";
 import { Prisma } from "@prisma/client";
 
 import { AppNav } from "@/components/app-nav";
+import { dedupeActivitiesAcrossProviders } from "@/lib/activity-dedupe";
 import { requireAppUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
-function formatDate(date: Date) {
+const FALLBACK_TIME_ZONE = "Europe/Berlin";
+
+function formatDate(date: Date, timeZone?: string | null) {
   return new Intl.DateTimeFormat("de-DE", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: timeZone ?? FALLBACK_TIME_ZONE,
   }).format(date);
 }
 
@@ -146,6 +150,7 @@ export default async function ActivitiesPage({
         classification: true,
         analysisLabel: true,
         startDate: true,
+        timezone: true,
         distanceMeters: true,
         movingTimeSeconds: true,
         elevationGainMeters: true,
@@ -164,6 +169,7 @@ export default async function ActivitiesPage({
       },
     }),
   ]);
+  const mergedActivities = dedupeActivitiesAcrossProviders(activities);
 
   const activeFilterCount = [
     rangeDays || fromDate || toDate,
@@ -179,7 +185,8 @@ export default async function ActivitiesPage({
           <p className="text-sm uppercase tracking-[0.12em] text-black/55">Aktivitaeten</p>
           <h1 className="mt-2 text-3xl font-semibold tracking-tight">Alle Aktivitaeten</h1>
           <p className="mt-2 text-sm text-black/65">
-            {activities.length} Treffer {activeFilterCount > 0 ? `(mit ${activeFilterCount} Filtern)` : ""}
+            {mergedActivities.length} Treffer{" "}
+            {activeFilterCount > 0 ? `(mit ${activeFilterCount} Filtern)` : ""}
           </p>
         </div>
         <AppNav current="activities" />
@@ -262,7 +269,7 @@ export default async function ActivitiesPage({
       </section>
 
       <section className="mt-6 space-y-3">
-        {activities.map((activity) => (
+        {mergedActivities.map((activity) => (
           <Link
             key={activity.id.toString()}
             className="block rounded-2xl border border-black/10 bg-white/85 p-4 transition hover:border-black/25 hover:bg-white"
@@ -272,14 +279,14 @@ export default async function ActivitiesPage({
               <div className="min-w-0">
                 <p className="truncate text-lg font-semibold tracking-tight">{activity.name}</p>
                 <p className="text-sm text-black/65">
-                  {activity.provider} · {activity.type}
+                  {activity.mergedProviderLabel} · {activity.type}
                 </p>
                 <p className="mt-1 text-xs uppercase tracking-[0.08em] text-black/45">
                   {activity.classification} · {activity.analysisLabel}
                 </p>
               </div>
               <div className="text-right text-sm text-black/70">
-                <p>{formatDate(activity.startDate)}</p>
+                <p>{formatDate(activity.startDate, activity.timezone)}</p>
                 <p>{formatDistance(activity.distanceMeters)}</p>
                 <p>{formatDuration(activity.movingTimeSeconds)}</p>
               </div>
@@ -311,7 +318,7 @@ export default async function ActivitiesPage({
           </Link>
         ))}
 
-        {activities.length === 0 ? (
+        {mergedActivities.length === 0 ? (
           <p className="rounded-2xl border border-black/10 bg-white/85 p-5 text-sm text-black/65">
             Keine Aktivitaeten fuer den ausgewaehlten Filter gefunden.
           </p>

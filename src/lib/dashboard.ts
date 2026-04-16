@@ -1,3 +1,4 @@
+import { dedupeActivitiesAcrossProviders } from "@/lib/activity-dedupe";
 import { prisma } from "@/lib/prisma";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -6,16 +7,8 @@ function getSinceDate(days: number) {
   return new Date(Date.now() - days * DAY_MS);
 }
 
-function toNumber(value: number | bigint | null | undefined) {
-  if (typeof value === "bigint") {
-    return Number(value);
-  }
-
-  if (typeof value !== "number" || !Number.isFinite(value)) {
-    return 0;
-  }
-
-  return value;
+function toFiniteNumber(value: number | null | undefined) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
 export type DashboardSummary = {
@@ -41,6 +34,7 @@ export type DashboardSummary = {
   recentActivities: Array<{
     id: number;
     provider: string;
+    providers: string[];
     name: string;
     type: string;
     startDate: string;
@@ -49,107 +43,91 @@ export type DashboardSummary = {
   }>;
 };
 
+type DashboardActivityRow = {
+  id: bigint;
+  provider: string;
+  name: string;
+  type: string;
+  startDate: Date;
+  distanceMeters: number;
+  movingTimeSeconds: number;
+};
+
+type DedupedDashboardActivity =
+  ReturnType<typeof dedupeActivitiesAcrossProviders<DashboardActivityRow>>[number];
+
+function summarizeWindow(
+  activities: DedupedDashboardActivity[],
+  since: Date,
+) {
+  const filtered = activities.filter((activity) => activity.startDate >= since);
+
+  return {
+    activities: filtered.length,
+    distanceMeters: filtered.reduce((sum, activity) => sum + toFiniteNumber(activity.distanceMeters), 0),
+    movingTimeSeconds: filtered.reduce(
+      (sum, activity) => sum + Math.max(0, activity.movingTimeSeconds),
+      0,
+    ),
+  };
+}
+
 export async function getDashboardSummary(userId: string): Promise<DashboardSummary> {
   const since7Days = getSinceDate(7);
   const since30Days = getSinceDate(30);
 
-  const [allStats, stats7Days, stats30Days, groupedTypes, recentActivities] =
-    await Promise.all([
-      prisma.activity.aggregate({
-        where: { userId },
-        _count: { _all: true },
-        _sum: {
-          distanceMeters: true,
-          movingTimeSeconds: true,
-        },
-        _max: {
-          startDate: true,
-        },
-      }),
-      prisma.activity.aggregate({
-        where: {
-          userId,
-          startDate: {
-            gte: since7Days,
-          },
-        },
-        _count: { _all: true },
-        _sum: {
-          distanceMeters: true,
-          movingTimeSeconds: true,
-        },
-      }),
-      prisma.activity.aggregate({
-        where: {
-          userId,
-          startDate: {
-            gte: since30Days,
-          },
-        },
-        _count: { _all: true },
-        _sum: {
-          distanceMeters: true,
-          movingTimeSeconds: true,
-        },
-      }),
-      prisma.activity.groupBy({
-        by: ["type"],
-        where: { userId },
-        _count: {
-          _all: true,
-        },
-        orderBy: {
-          _count: {
-            type: "desc",
-          },
-        },
-      }),
-      prisma.activity.findMany({
-        where: { userId },
-        orderBy: {
-          startDate: "desc",
-        },
-        take: 10,
-        select: {
-          id: true,
-          provider: true,
-          name: true,
-          type: true,
-          startDate: true,
-          distanceMeters: true,
-          movingTimeSeconds: true,
-        },
-      }),
-    ]);
+  const activities = await prisma.activity.findMany({
+    where: { userId },
+    orderBy: {
+      startDate: "desc",
+    },
+    select: {
+      id: true,
+      provider: true,
+      name: true,
+      type: true,
+      startDate: true,
+      distanceMeters: true,
+      movingTimeSeconds: true,
+    },
+  });
 
-  const totalActivities = allStats._count._all;
+  const deduped = dedupeActivitiesAcrossProviders(activities);
+  const totalActivities = deduped.length;
+  const totalDistanceMeters = deduped.reduce(
+    (sum, activity) => sum + toFiniteNumber(activity.distanceMeters),
+    0,
+  );
+  const totalMovingTimeSeconds = deduped.reduce(
+    (sum, activity) => sum + Math.max(0, activity.movingTimeSeconds),
+    0,
+  );
+
+  const groupedTypesMap = new Map<string, number>();
+  for (const activity of deduped) {
+    groupedTypesMap.set(activity.type, (groupedTypesMap.get(activity.type) ?? 0) + 1);
+  }
+
+  const sportBreakdown = [...groupedTypesMap.entries()]
+    .map(([type, count]) => ({
+      type,
+      count,
+      percentage: totalActivities > 0 ? (count / totalActivities) * 100 : 0,
+    }))
+    .sort((a, b) => b.count - a.count);
 
   return {
     totalActivities,
-    totalDistanceMeters: toNumber(allStats._sum.distanceMeters),
-    totalMovingTimeSeconds: toNumber(allStats._sum.movingTimeSeconds),
-    lastActivityDate: allStats._max.startDate?.toISOString() ?? null,
-    last7Days: {
-      activities: stats7Days._count._all,
-      distanceMeters: toNumber(stats7Days._sum.distanceMeters),
-      movingTimeSeconds: toNumber(stats7Days._sum.movingTimeSeconds),
-    },
-    last30Days: {
-      activities: stats30Days._count._all,
-      distanceMeters: toNumber(stats30Days._sum.distanceMeters),
-      movingTimeSeconds: toNumber(stats30Days._sum.movingTimeSeconds),
-    },
-    sportBreakdown: groupedTypes.map((entry) => {
-      const count = entry._count._all;
-      return {
-        type: entry.type,
-        count,
-        percentage: totalActivities > 0 ? (count / totalActivities) * 100 : 0,
-      };
-    }),
-    recentActivities: recentActivities.map((activity) => ({
+    totalDistanceMeters,
+    totalMovingTimeSeconds,
+    lastActivityDate: deduped[0]?.startDate.toISOString() ?? null,
+    last7Days: summarizeWindow(deduped, since7Days),
+    last30Days: summarizeWindow(deduped, since30Days),
+    sportBreakdown,
+    recentActivities: deduped.slice(0, 10).map((activity) => ({
       id: Number(activity.id),
-      provider: activity.provider,
+      provider: activity.mergedProviderLabel,
+      providers: activity.providers,
       name: activity.name,
       type: activity.type,
       startDate: activity.startDate.toISOString(),
