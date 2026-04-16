@@ -607,6 +607,19 @@ function toFiniteNumberOrNull(value: unknown) {
   return value;
 }
 
+function extractIanaTimeZone(timezone: string | null | undefined) {
+  if (!timezone) {
+    return null;
+  }
+
+  const match = timezone.match(/[A-Za-z_]+\/[A-Za-z0-9_+-]+/);
+  return match?.[0] ?? null;
+}
+
+function resolveStravaActivityTimeZone(activity: StravaActivity | null | undefined) {
+  return extractIanaTimeZone(activity?.timezone);
+}
+
 function firstProviderMetric(
   activity: StravaActivity,
   keys: string[],
@@ -926,6 +939,7 @@ async function upsertActivities(
       cursor += 1;
       const { activity, rawActivity } = entries[index];
       const rawJsonValue = toRawJson(rawActivity ?? activity);
+      const timeZone = resolveStravaActivityTimeZone(rawActivity);
 
       await prisma.activity.upsert({
         where: {
@@ -945,7 +959,7 @@ async function upsertActivities(
           distance: activity.distanceMeters,
           movingTime: activity.movingTimeSeconds,
           elapsedTime: activity.elapsedTimeSeconds,
-          timezone: null,
+          timezone: timeZone,
           rawJson: rawJsonValue,
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,
@@ -982,7 +996,7 @@ async function upsertActivities(
           distance: activity.distanceMeters,
           movingTime: activity.movingTimeSeconds,
           elapsedTime: activity.elapsedTimeSeconds,
-          timezone: null,
+          timezone: timeZone,
           rawJson: rawJsonValue,
           classification: activity.classification,
           analysisLabel: activity.analysisLabel,

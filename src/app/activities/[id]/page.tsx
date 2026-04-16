@@ -17,10 +17,13 @@ type ActivityProviderMetrics = {
   maxTempC: number | null;
 };
 
-function formatDate(date: Date) {
+const FALLBACK_TIME_ZONE = "Europe/Berlin";
+
+function formatDate(date: Date, timeZone?: string | null) {
   return new Intl.DateTimeFormat("de-DE", {
     dateStyle: "medium",
     timeStyle: "short",
+    timeZone: timeZone ?? FALLBACK_TIME_ZONE,
   }).format(date);
 }
 
@@ -207,7 +210,9 @@ export default async function ActivityDetailPage({
         <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
             <p className="text-xs uppercase tracking-[0.08em] text-black/45">Start</p>
-            <p className="mt-1 text-base font-semibold">{formatDate(activity.startDate)}</p>
+            <p className="mt-1 text-base font-semibold">
+              {formatDate(activity.startDate, activity.timezone)}
+            </p>
           </div>
           <div className="rounded-2xl border border-black/10 bg-white/80 p-4">
             <p className="text-xs uppercase tracking-[0.08em] text-black/45">Distanz</p>

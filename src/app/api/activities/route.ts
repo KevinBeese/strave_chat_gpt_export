@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 
+import { dedupeActivitiesAcrossProviders } from "@/lib/activity-dedupe";
 import { getAuthenticatedAppUserId } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 
@@ -34,11 +35,13 @@ export async function GET(request: NextRequest) {
       elapsedTimeSeconds: true,
     },
   });
+  const mergedActivities = dedupeActivitiesAcrossProviders(activities);
 
   return NextResponse.json({
-    activities: activities.map((activity) => ({
+    activities: mergedActivities.map((activity) => ({
       id: Number(activity.id),
-      provider: activity.provider,
+      provider: activity.mergedProviderLabel,
+      providers: activity.providers,
       providerActivityId: activity.providerActivityId,
       name: activity.name,
       type: activity.type,
