@@ -15,6 +15,8 @@ function getAuthStatus(searchParams: Record<string, string | string[] | undefine
       account_created_check_email:
         "Konto erstellt. Bitte bestaetige jetzt die E-Mail und logge dich danach ein.",
       account_created: "Konto erstellt und eingeloggt.",
+      signout_disconnect_failed:
+        "Logout konnte die Verbindungen zu Strava/Wahoo nicht sauber trennen. Du bist noch eingeloggt.",
       signout_failed: "Logout ist fehlgeschlagen. Bitte erneut versuchen.",
     };
 
@@ -31,6 +33,13 @@ function getAuthStatus(searchParams: Record<string, string | string[] | undefine
     return {
       tone: "neutral" as const,
       text: "Du wurdest ausgeloggt.",
+    };
+  }
+
+  if (searchParams.account_deleted === "1") {
+    return {
+      tone: "neutral" as const,
+      text: "Dein Konto und alle Verbindungen wurden geloescht.",
     };
   }
 
