@@ -38,6 +38,7 @@ import type {
 
 const STRAVA_API_BASE_URL = "https://www.strava.com/api/v3";
 const STRAVA_OAUTH_URL = "https://www.strava.com/oauth/token";
+const STRAVA_OAUTH_DEAUTHORIZE_URL = "https://www.strava.com/oauth/deauthorize";
 const TOKEN_REFRESH_SAFETY_WINDOW_MS = 10 * 60 * 1000;
 const DETAIL_FETCH_CONCURRENCY = 1;
 const DETAIL_FETCH_DELAY_MS = 200;
@@ -346,6 +347,56 @@ export async function disconnectStravaConnection(userId: string) {
       userId,
     },
   });
+}
+
+async function deauthorizeStravaConnection(accessToken: string) {
+  const payload = new URLSearchParams({
+    access_token: accessToken,
+  });
+
+  const response = await requestWithRetry(STRAVA_OAUTH_DEAUTHORIZE_URL, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+    body: payload.toString(),
+  });
+
+  if (!response) {
+    throw new Error("Unable to deauthorize Strava connection.");
+  }
+
+  if (!response.ok) {
+    if ([401, 403, 404].includes(response.status)) {
+      // Token is already invalid or no longer attached to an active authorization.
+      return;
+    }
+
+    const details = await response.text();
+    throw new Error(
+      `Strava deauthorize failed (${response.status}): ${details || "No response body"}`,
+    );
+  }
+}
+
+export async function disconnectStravaConnectionWithDeauthorize(userId: string) {
+  const existingConnection = await prisma.stravaConnection.findUnique({
+    where: {
+      userId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existingConnection) {
+    return;
+  }
+
+  const { accessToken } = await getValidAccessToken(userId);
+  await deauthorizeStravaConnection(accessToken);
+  await disconnectStravaConnection(userId);
 }
 
 async function getCurrentConnection(userId: string) {

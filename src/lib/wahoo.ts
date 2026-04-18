@@ -274,6 +274,52 @@ export async function disconnectWahooConnection(userId: string) {
   });
 }
 
+async function deauthorizeWahooConnection(accessToken: string) {
+  const response = await requestWithRetry(`${WAHOO_API_BASE_URL}/v1/permissions`, {
+    method: "DELETE",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+    },
+    cache: "no-store",
+  });
+
+  if (!response) {
+    throw new Error("Unable to deauthorize Wahoo connection.");
+  }
+
+  if (!response.ok) {
+    if ([401, 403, 404].includes(response.status)) {
+      // Token is already invalid or permissions are already removed.
+      return;
+    }
+
+    const details = await response.text();
+    throw new Error(
+      `Wahoo deauthorize failed (${response.status}): ${details || "No response body"}`,
+    );
+  }
+}
+
+export async function disconnectWahooConnectionWithDeauthorize(userId: string) {
+  const existingConnection = await prisma.wahooConnection.findUnique({
+    where: {
+      userId,
+    },
+    select: {
+      id: true,
+    },
+  });
+
+  if (!existingConnection) {
+    return;
+  }
+
+  const { accessToken } = await getAccessTokenForApiCall(userId);
+  await deauthorizeWahooConnection(accessToken);
+  await disconnectWahooConnection(userId);
+}
+
 async function getCurrentConnection(userId: string) {
   const connection = await prisma.wahooConnection.findUnique({
     where: {
