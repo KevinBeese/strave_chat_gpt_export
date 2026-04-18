@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+import { toApiErrorResponse } from "@/lib/route-errors";
 import { syncActivitiesForUser } from "@/lib/strava";
 
 export async function POST() {
@@ -15,15 +17,17 @@ export async function POST() {
   try {
     const result = await syncActivitiesForUser(userId);
     if (result.partial) {
-      console.warn("Strava activity sync completed partially", {
+      logger.warn("Strava activity sync completed partially.", {
         userId,
         partialReason: result.partialReason,
       });
     }
     return NextResponse.json(result);
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Strava-Sync konnte nicht abgeschlossen werden.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    logger.error("Strava sync API failed.", error, {
+      route: "/api/strava/sync",
+      userId,
+    });
+    return toApiErrorResponse(error, "Strava-Sync konnte nicht abgeschlossen werden.");
   }
 }

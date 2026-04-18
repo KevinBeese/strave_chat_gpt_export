@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+import { toAppError } from "@/lib/route-errors";
 import { exchangeCodeForToken, upsertStravaConnection } from "@/lib/strava";
 
 export async function GET(request: NextRequest) {
@@ -12,12 +14,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/auth?next=/dashboard", request.url));
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown session bootstrap error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    if (isSchemaMissing) {
+    const appError = toAppError(error, "Unable to bootstrap Strava callback session.");
+    if (appError.code === "db_schema_missing") {
       return NextResponse.redirect(new URL("/dashboard?error=db_schema_missing", request.url));
     }
 
+    logger.error("Failed to bootstrap Strava callback session.", error, {
+      route: "/api/strava/callback",
+    });
     return NextResponse.redirect(new URL("/dashboard?error=auth_setup_failed", request.url));
   }
   if (!userId) {
@@ -55,10 +59,9 @@ export async function GET(request: NextRequest) {
     }, userId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Unknown OAuth callback error";
-    console.error("Strava callback failed", {
+    logger.error("Strava callback failed.", error, {
+      route: "/api/strava/callback",
       userId,
-      message,
-      databaseUrl: process.env.DATABASE_URL,
     });
 
     const isDatabaseWriteError = /sqlite|readonly|database|prisma/i.test(message);
@@ -75,5 +78,5 @@ export async function GET(request: NextRequest) {
     return redirectWithSession(redirectUrl);
   }
 
-  return redirectWithSession(new URL("/dashboard?connected=1", request.url));
+  return redirectWithSession(new URL("/dashboard?connected=1&focus=export&onboarding=1", request.url));
 }

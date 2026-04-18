@@ -2,6 +2,8 @@ import { cookies } from "next/headers";
 import { NextRequest, NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+import { toAppError } from "@/lib/route-errors";
 import {
   exchangeCodeForWahooToken,
   fetchAuthenticatedWahooUser,
@@ -17,12 +19,14 @@ export async function GET(request: NextRequest) {
       return NextResponse.redirect(new URL("/auth?next=/dashboard", request.url));
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown session bootstrap error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    if (isSchemaMissing) {
+    const appError = toAppError(error, "Unable to bootstrap Wahoo callback session.");
+    if (appError.code === "db_schema_missing") {
       return NextResponse.redirect(new URL("/dashboard?error=db_schema_missing", request.url));
     }
 
+    logger.error("Failed to bootstrap Wahoo callback session.", error, {
+      route: "/api/auth/wahoo/callback",
+    });
     return NextResponse.redirect(new URL("/dashboard?error=wahoo_auth_setup_failed", request.url));
   }
 
@@ -64,10 +68,9 @@ export async function GET(request: NextRequest) {
   } catch (callbackError) {
     const message =
       callbackError instanceof Error ? callbackError.message : "Unknown OAuth callback error";
-    console.error("Wahoo callback failed", {
+    logger.error("Wahoo callback failed.", callbackError, {
+      route: "/api/auth/wahoo/callback",
       userId,
-      message,
-      databaseUrl: process.env.DATABASE_URL,
     });
 
     const isDatabaseWriteError = /sqlite|readonly|database|prisma/i.test(message);

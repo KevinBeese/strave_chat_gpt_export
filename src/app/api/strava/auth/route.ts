@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
 import { getEnv } from "@/lib/env";
+import { logger } from "@/lib/logger";
+import { toAppError } from "@/lib/route-errors";
 
 export async function GET(request: Request) {
   try {
@@ -35,13 +37,14 @@ export async function GET(request: Request) {
 
     return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown auth setup error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    if (isSchemaMissing) {
+    const appError = toAppError(error, "Unable to initialize Strava auth route.");
+    if (appError.code === "db_schema_missing") {
       return NextResponse.redirect(new URL("/dashboard?error=db_schema_missing", request.url));
     }
 
-    console.error("Failed to initialize Strava auth route", error);
+    logger.error("Failed to initialize Strava auth route.", error, {
+      route: "/api/strava/auth",
+    });
     return NextResponse.redirect(new URL("/dashboard?error=auth_setup_failed", request.url));
   }
 }

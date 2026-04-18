@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+import { toAppError } from "@/lib/route-errors";
 import { disconnectStravaConnectionWithDeauthorize } from "@/lib/strava";
 
 export async function POST(request: Request) {
@@ -17,9 +19,12 @@ export async function POST(request: Request) {
       status: 303,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown disconnect error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    const errorCode = isSchemaMissing ? "db_schema_missing" : "disconnect_failed";
+    const appError = toAppError(error, "Unable to disconnect Strava connection.");
+    const errorCode = appError.code === "db_schema_missing" ? "db_schema_missing" : "disconnect_failed";
+
+    logger.error("Strava disconnect failed.", error, {
+      route: "/api/strava/disconnect",
+    });
 
     return NextResponse.redirect(new URL(`/dashboard?error=${errorCode}`, request.url), {
       status: 303,

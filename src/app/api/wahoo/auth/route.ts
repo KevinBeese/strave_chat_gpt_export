@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import { logger } from "@/lib/logger";
+import { toAppError } from "@/lib/route-errors";
 import { canStartWahooOauth } from "@/lib/wahoo";
 
 const WAHOO_OAUTH_AUTHORIZE_URL = "https://api.wahooligan.com/oauth/authorize";
@@ -48,13 +50,14 @@ export async function GET(request: Request) {
 
     return response;
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown auth setup error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    if (isSchemaMissing) {
+    const appError = toAppError(error, "Unable to initialize Wahoo auth route.");
+    if (appError.code === "db_schema_missing") {
       return NextResponse.redirect(new URL("/dashboard?error=db_schema_missing", request.url));
     }
 
-    console.error("Failed to initialize Wahoo auth route", error);
+    logger.error("Failed to initialize Wahoo auth route.", error, {
+      route: "/api/wahoo/auth",
+    });
     return NextResponse.redirect(new URL("/dashboard?error=wahoo_auth_setup_failed", request.url));
   }
 }

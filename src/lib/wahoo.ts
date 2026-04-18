@@ -1,12 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
+import { getEnv } from "@/lib/env";
+import { logger } from "@/lib/logger";
 import { decryptToken, encryptToken } from "@/lib/token-crypto";
 
 const WAHOO_API_BASE_URL = "https://api.wahooligan.com";
 const WAHOO_OAUTH_URL = `${WAHOO_API_BASE_URL}/oauth/token`;
 const TOKEN_REFRESH_WINDOW_MS = 30 * 1000;
-const REQUEST_MAX_ATTEMPTS = 3;
-const REQUEST_BASE_DELAY_MS = 500;
 const WAHOO_ACTIVITY_ID_OFFSET = 4_000_000_000_000_000_000n;
 
 type WahooTokenResponse = {
@@ -111,31 +111,64 @@ function getRetryDelayMs(attempt: number, baseDelayMs: number) {
 }
 
 async function requestWithRetry(url: string, init: RequestInit, options?: RequestRetryOptions) {
+  const env = getEnv();
+  const maxAttempts = env.WAHOO_RETRY_MAX_ATTEMPTS;
+  const baseDelayMs = env.WAHOO_RETRY_BASE_DELAY_MS;
+  const timeoutMs = env.WAHOO_REQUEST_TIMEOUT_MS;
   const method = (init.method ?? "GET").toUpperCase();
   let lastNetworkError: unknown = null;
 
-  for (let attempt = 0; attempt < REQUEST_MAX_ATTEMPTS; attempt += 1) {
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
     try {
-      const response = await fetch(url, init);
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
       if (response.ok) {
         return response;
       }
 
       const retryableStatus = response.status === 429 || response.status >= 500;
-      const isLastAttempt = attempt === REQUEST_MAX_ATTEMPTS - 1;
+      const isLastAttempt = attempt === maxAttempts - 1;
 
       if (!retryableStatus || isLastAttempt) {
         return response;
       }
 
-      await sleep(getRetryDelayMs(attempt, REQUEST_BASE_DELAY_MS));
+      const delayMs = getRetryDelayMs(attempt, baseDelayMs);
+      logger.warn("Retrying Wahoo request after retryable response.", {
+        method,
+        url,
+        status: response.status,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+      });
+      await sleep(delayMs);
     } catch (error) {
+      clearTimeout(timeout);
       lastNetworkError = error;
-      if (attempt === REQUEST_MAX_ATTEMPTS - 1) {
+      if (attempt === maxAttempts - 1) {
         break;
       }
 
-      await sleep(getRetryDelayMs(attempt, REQUEST_BASE_DELAY_MS));
+      const delayMs = getRetryDelayMs(attempt, baseDelayMs);
+      logger.warn("Retrying Wahoo request after network/timeout error.", {
+        method,
+        url,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        timeoutMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      await sleep(delayMs);
     }
   }
 

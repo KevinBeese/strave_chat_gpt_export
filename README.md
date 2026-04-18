@@ -52,6 +52,7 @@ cp .env.example .env.local
 - Optional fuer robustere API-Aufrufe:
   - `STRAVA_RETRY_MAX_ATTEMPTS` (Default `4`)
   - `STRAVA_RETRY_BASE_DELAY_MS` (Default `500`)
+  - `STRAVA_REQUEST_TIMEOUT_MS` (Default `15000`)
 - `DATABASE_URL` auf eine PostgreSQL-Instanz setzen (lokal z. B. `postgresql://postgres:postgres@localhost:5432/strava_export?schema=public`)
 - Als Authorization Callback Domain in Strava fuer den lokalen Test: `localhost`
 - Als Callback URL in Strava: `http://localhost:3000/api/strava/callback`
@@ -61,6 +62,13 @@ Optional: Wahoo Cloud API anbinden:
 - `WAHOO_CLIENT_SECRET`
 - `WAHOO_REDIRECT_URI` (lokal z. B. `http://localhost:3000/api/auth/wahoo/callback`)
 - `WAHOO_OAUTH_SCOPES` (optional, Default: `user_read workouts_read`)
+- Optional fuer robustere API-Aufrufe:
+  - `WAHOO_RETRY_MAX_ATTEMPTS` (Default `3`)
+  - `WAHOO_RETRY_BASE_DELAY_MS` (Default `500`)
+  - `WAHOO_REQUEST_TIMEOUT_MS` (Default `15000`)
+- Optional fuer Monitoring:
+  - `SENTRY_DSN` (Sentry-Projekt-DSN)
+  - `SENTRY_TRACES_SAMPLE_RATE` (0-1, Default `0`)
 - OAuth-Startpunkt: `http://localhost:3000/api/wahoo/connect`
 
 5. Prisma Client generieren:

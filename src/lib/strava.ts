@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import type { Prisma } from "@prisma/client";
 import { getEnv } from "@/lib/env";
 import { createExportPayload } from "@/lib/export-format";
+import { logger } from "@/lib/logger";
 import { decryptToken, encryptToken } from "@/lib/token-crypto";
 import {
   getTrendConfidence,
@@ -217,13 +218,23 @@ async function requestWithRetry(
   const env = getEnv();
   const maxAttempts = env.STRAVA_RETRY_MAX_ATTEMPTS;
   const baseDelayMs = env.STRAVA_RETRY_BASE_DELAY_MS;
+  const timeoutMs = env.STRAVA_REQUEST_TIMEOUT_MS;
   const method = (init.method ?? "GET").toUpperCase();
 
   let lastNetworkError: unknown = null;
 
   for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => {
+      controller.abort();
+    }, timeoutMs);
+
     try {
-      const response = await fetch(url, init);
+      const response = await fetch(url, {
+        ...init,
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
       if (response.ok) {
         return response;
       }
@@ -238,8 +249,18 @@ async function requestWithRetry(
       }
 
       const delayMs = getRetryDelayMs(attempt, baseDelayMs, retryAfterSeconds);
+      logger.warn("Retrying Strava request after retryable response.", {
+        method,
+        url,
+        status,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        retryAfterSeconds,
+      });
       await sleep(delayMs);
     } catch (error) {
+      clearTimeout(timeout);
       lastNetworkError = error;
       const isLastAttempt = attempt === maxAttempts - 1;
       if (isLastAttempt) {
@@ -247,6 +268,15 @@ async function requestWithRetry(
       }
 
       const delayMs = getRetryDelayMs(attempt, baseDelayMs, null);
+      logger.warn("Retrying Strava request after network/timeout error.", {
+        method,
+        url,
+        attempt: attempt + 1,
+        maxAttempts,
+        delayMs,
+        timeoutMs,
+        error: error instanceof Error ? error.message : String(error),
+      });
       await sleep(delayMs);
     }
   }

@@ -2,7 +2,9 @@ import { UserRole } from "@prisma/client";
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppProfile } from "@/lib/auth";
+import { logger } from "@/lib/logger";
 import { prisma } from "@/lib/prisma";
+import { toAppError } from "@/lib/route-errors";
 import { disconnectStravaConnectionWithDeauthorize } from "@/lib/strava";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 import { disconnectWahooConnectionWithDeauthorize } from "@/lib/wahoo";
@@ -78,9 +80,12 @@ export async function POST(request: Request) {
       status: 303,
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : "Unknown account delete error";
-    const isSchemaMissing = /P2021|table .* does not exist/i.test(message);
-    const errorCode = isSchemaMissing ? "db_schema_missing" : "account_delete_failed";
+    const appError = toAppError(error, "Unable to delete account.");
+    const errorCode = appError.code === "db_schema_missing" ? "db_schema_missing" : "account_delete_failed";
+
+    logger.error("Account deletion failed.", error, {
+      route: "/api/account/delete",
+    });
 
     return NextResponse.redirect(new URL(`/settings?error=${errorCode}`, request.url), {
       status: 303,
