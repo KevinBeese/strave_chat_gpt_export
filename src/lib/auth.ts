@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import type { UserRole } from "@prisma/client";
 
 import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
@@ -27,6 +28,12 @@ export async function ensureAppUserExists(userId: string, email?: string | null)
   });
 }
 
+export type AuthenticatedAppProfile = {
+  id: string;
+  email: string;
+  role: UserRole;
+};
+
 export async function requireAuthenticatedUser() {
   const user = await getCurrentSupabaseUser();
   if (!user) {
@@ -50,4 +57,29 @@ export async function getAuthenticatedAppUserId() {
 
   await ensureAppUserExists(user.id, user.email);
   return user.id;
+}
+
+export async function getAuthenticatedAppProfile() {
+  const user = await getCurrentSupabaseUser();
+  if (!user) {
+    return null;
+  }
+
+  await ensureAppUserExists(user.id, user.email);
+  const profile = await prisma.profile.findUnique({
+    where: {
+      id: user.id,
+    },
+    select: {
+      id: true,
+      email: true,
+      role: true,
+    },
+  });
+
+  if (!profile) {
+    return null;
+  }
+
+  return profile satisfies AuthenticatedAppProfile;
 }

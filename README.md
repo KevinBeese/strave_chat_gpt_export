@@ -46,6 +46,9 @@ cp .env.example .env.local
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URI`
+- Optional fuer Rollen-/Admin-Code-Flow:
+  - `SUPERADMIN_BOOTSTRAP_CODE` (einmaliger Bootstrap fuer ersten Superadmin)
+  - `ADMIN_CODE_HASH_PEPPER` (optional, extra Hash-Pepper fuer Invite-Codes)
 - Optional fuer robustere API-Aufrufe:
   - `STRAVA_RETRY_MAX_ATTEMPTS` (Default `4`)
   - `STRAVA_RETRY_BASE_DELAY_MS` (Default `500`)
@@ -102,6 +105,9 @@ docker run --rm -p 3000:3000 \
 - `STRAVA_CLIENT_ID`
 - `STRAVA_CLIENT_SECRET`
 - `STRAVA_REDIRECT_URI`: `https://<deine-domain>/api/strava/callback`
+- Optional:
+  - `SUPERADMIN_BOOTSTRAP_CODE`
+  - `ADMIN_CODE_HASH_PEPPER`
 - Optional:
   - `WAHOO_CLIENT_ID`
   - `WAHOO_CLIENT_SECRET`
