@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
-import { disconnectStravaConnection } from "@/lib/strava";
+import { disconnectStravaConnectionWithDeauthorize } from "@/lib/strava";
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       });
     }
 
-    await disconnectStravaConnection(userId);
+    await disconnectStravaConnectionWithDeauthorize(userId);
     return NextResponse.redirect(new URL("/dashboard?disconnected=1", request.url), {
       status: 303,
     });

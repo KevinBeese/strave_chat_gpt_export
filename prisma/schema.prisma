@@ -8,6 +8,12 @@ datasource db {
   directUrl = env("DIRECT_URL")
 }
 
+enum UserRole {
+  USER
+  SUBADMIN
+  SUPERADMIN
+}
+
 model StravaConnection {
   id            String   @id @default(cuid())
   userId        String   @unique @db.Uuid
@@ -101,6 +107,7 @@ model Profile {
   id                String            @id @db.Uuid
   email             String            @default("")
   displayName       String?
+  role              UserRole          @default(USER)
   createdAt         DateTime          @default(now())
   updatedAt         DateTime          @updatedAt
   sessions          UserSession[]
@@ -108,6 +115,29 @@ model Profile {
   wahooConnection   WahooConnection?
   exportSnapshots   ExportSnapshot[]
   activities        Activity[]
+  inviteCodesCreated AdminInviteCode[] @relation("InviteCodesCreatedBy")
+  inviteCodesUsed     AdminInviteCode[] @relation("InviteCodesUsedBy")
+}
+
+model AdminInviteCode {
+  id             String   @id @default(cuid())
+  codeHash       String   @unique
+  targetRole     UserRole
+  maxUses        Int      @default(1)
+  usedCount      Int      @default(0)
+  expiresAt      DateTime?
+  createdByUserId String  @db.Uuid
+  usedByUserId    String? @db.Uuid
+  revokedAt      DateTime?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  createdBy Profile @relation("InviteCodesCreatedBy", fields: [createdByUserId], references: [id], onDelete: Cascade)
+  usedBy    Profile? @relation("InviteCodesUsedBy", fields: [usedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([targetRole, revokedAt, expiresAt])
+  @@index([createdByUserId, createdAt])
+  @@index([usedByUserId])
 }
 
 model UserSession {

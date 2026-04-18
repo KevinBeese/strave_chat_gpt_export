@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { getAuthenticatedAppUserId } from "@/lib/auth";
-import { disconnectWahooConnection } from "@/lib/wahoo";
+import { disconnectWahooConnectionWithDeauthorize } from "@/lib/wahoo";
 
 export async function POST(request: Request) {
   try {
@@ -12,7 +12,7 @@ export async function POST(request: Request) {
       });
     }
 
-    await disconnectWahooConnection(userId);
+    await disconnectWahooConnectionWithDeauthorize(userId);
     return NextResponse.redirect(new URL("/dashboard?wahoo_disconnected=1", request.url), {
       status: 303,
     });
