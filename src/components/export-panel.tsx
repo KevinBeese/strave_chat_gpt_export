@@ -1,6 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { CopyButton } from "@/components/copy-button";
 import {
@@ -915,15 +917,28 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
   );
 }
 
-export function ExportPanel({ connected }: { connected: boolean }) {
+export function ExportPanel({
+  connected,
+  autoStart = false,
+  emphasizeOnboarding = false,
+  refreshOnFirstSuccess = false,
+}: {
+  connected: boolean;
+  autoStart?: boolean;
+  emphasizeOnboarding?: boolean;
+  refreshOnFirstSuccess?: boolean;
+}) {
+  const router = useRouter();
   const [data, setData] = useState<ExportPayload | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number>(7);
   const [selectedSportFilter, setSelectedSportFilter] =
     useState<SnapshotSportFilter>("all");
+  const hasAutoStarted = useRef(false);
+  const hasRefreshedAfterSuccess = useRef(false);
 
-  async function handleExport() {
+  const handleExport = useCallback(async () => {
     setLoading(true);
     setError(null);
 
@@ -941,12 +956,27 @@ export function ExportPanel({ connected }: { connected: boolean }) {
       }
 
       setData(payload as ExportPayload);
+
+      if (refreshOnFirstSuccess && !hasRefreshedAfterSuccess.current) {
+        hasRefreshedAfterSuccess.current = true;
+        router.replace("/dashboard?onboarding_done=1");
+        router.refresh();
+      }
     } catch {
       setError("Export fehlgeschlagen. Bitte pruefe deine Verbindung.");
     } finally {
       setLoading(false);
     }
-  }
+  }, [refreshOnFirstSuccess, router, selectedDays]);
+
+  useEffect(() => {
+    if (!connected || !autoStart || hasAutoStarted.current) {
+      return;
+    }
+
+    hasAutoStarted.current = true;
+    void handleExport();
+  }, [autoStart, connected, handleExport]);
 
   const jsonValue = data ? JSON.stringify(data, null, 2) : "";
   const gptSummary = data?.chatGptPrompt ?? "";
@@ -979,15 +1009,23 @@ export function ExportPanel({ connected }: { connected: boolean }) {
       ?.label ?? "All";
 
   return (
-    <section className="rounded-[2rem] border border-[color:var(--border)] bg-white/78 p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)]">
+    <section
+      className="rounded-[2rem] border border-[color:var(--border)] bg-white/78 p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)]"
+      id="export-panel"
+    >
       <p className="text-sm uppercase tracking-[0.14em] text-black/55">Export</p>
       <h2 className="mt-4 text-3xl font-semibold tracking-tight">
         Strava-Zeitraum fuer ChatGPT vorbereiten
       </h2>
       <p className="mt-4 text-sm leading-6 text-black/70">
-        Fuer den MVP ziehen wir Aktivitaeten auf Aktivitaetslevel und erzeugen
-        daraus JSON und einen direkt kopierbaren Analyse-Text.
+        Fuer den MVP ziehen wir Aktivitaeten auf Aktivitaetslevel und erzeugen daraus JSON und
+        einen direkt kopierbaren Analyse-Text.
       </p>
+      {emphasizeOnboarding ? (
+        <div className="mt-4 rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/8 p-4 text-sm text-black/72">
+          Happy Path: Zeitraum auf 7 Tage lassen, Export starten, Analyse kopieren oder als Datei teilen.
+        </div>
+      ) : null}
       <p className="mt-3 text-sm leading-6 text-black/58">
         Provider-Metriken werden bevorzugt verwendet (z. B. TSS/IF/NP, falls vorhanden).
         Unsere Formel springt nur noch als Fallback ein und wird als Quelle markiert.
@@ -1108,19 +1146,89 @@ export function ExportPanel({ connected }: { connected: boolean }) {
       ) : null}
 
       {!connected ? (
-        <p className="mt-4 text-sm text-black/58">
-          Verbinde zuerst deinen Strava-Account.
-        </p>
+        <div className="mt-5 rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/8 p-4">
+          <p className="text-sm font-semibold text-[color:var(--accent)]">Verbindung fehlt</p>
+          <p className="mt-2 text-sm text-black/68">
+            Verbinde zuerst deinen Strava-Account im Dashboard. Danach kannst du direkt den ersten
+            7-Tage-Export erzeugen.
+          </p>
+          <Link
+            className="mt-3 inline-flex rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)]"
+            href="/dashboard"
+          >
+            Strava verbinden
+          </Link>
+        </div>
+      ) : null}
+
+      {connected && !data && !error ? (
+        <div className="mt-5 rounded-2xl border border-black/10 bg-white/85 p-4 text-sm text-black/68">
+          <p className="font-semibold text-black/82">Bereit fuer den ersten Export</p>
+          <p className="mt-2">
+            Standard ist auf 7 Tage gesetzt. Klicke auf {selectedDays} Tage exportieren, um JSON und den
+            GPT-Block zu erzeugen.
+          </p>
+        </div>
       ) : null}
 
       {error ? (
         <div className="mt-5 rounded-3xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {error}
+          <p>{error}</p>
+          <button
+            className="mt-3 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
+            disabled={!connected || loading}
+            onClick={handleExport}
+            type="button"
+          >
+            Erneut versuchen
+          </button>
         </div>
       ) : null}
 
       {data ? (
         <div className="mt-6 space-y-6">
+          <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+            <p className="font-semibold">Export erfolgreich erstellt</p>
+            <p className="mt-1">
+              Dein {data.selectedDays}-Tage-Export ist bereit. Du kannst ihn kopieren, als JSON/TXT
+              herunterladen oder in den Aktivitaeten weiterpruefen.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Link
+                className="rounded-full border border-emerald-300 bg-white px-4 py-2 font-medium text-emerald-700 hover:bg-emerald-100"
+                href="/activities?range=7"
+              >
+                Export im Feed oeffnen
+              </Link>
+              {gptSummary ? <CopyButton value={gptSummary} /> : null}
+            </div>
+          </div>
+
+          {data.activityCount === 0 ? (
+            <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+              <p className="font-semibold">Keine Aktivitaeten im gewaehlten Zeitraum</p>
+              <p className="mt-1">
+                Es wurden im {data.selectedDays}-Tage-Fenster keine Einheiten gefunden. Probiere 14 oder
+                30 Tage oder synchronisiere erneut.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="rounded-full border border-amber-300 bg-white px-4 py-2 font-medium text-amber-800 hover:bg-amber-100"
+                  onClick={() => setSelectedDays(30)}
+                  type="button"
+                >
+                  Zeitraum auf 30 Tage setzen
+                </button>
+                <Link
+                  className="rounded-full border border-amber-300 bg-white px-4 py-2 font-medium text-amber-800 hover:bg-amber-100"
+                  href="/dashboard"
+                >
+                  Zurueck zum Dashboard
+                </Link>
+              </div>
+            </div>
+          ) : null}
+
           <div className="grid gap-4 xl:grid-cols-[1.1fr_0.9fr]">
             <div className="rounded-[1.5rem] border border-[color:var(--border)] bg-[#fffaf1] p-5">
               <div className="flex flex-wrap items-center justify-between gap-3">

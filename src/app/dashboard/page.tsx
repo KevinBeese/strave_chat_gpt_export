@@ -114,6 +114,7 @@ export default async function DashboardPage({
     stravaConnection,
     wahooConnection,
     summary,
+    exportSnapshotCount,
     profile,
     athleteProfile,
     wahooProfile,
@@ -122,6 +123,7 @@ export default async function DashboardPage({
     getConnectionStatus(user.id),
     getWahooConnectionStatus(user.id),
     getDashboardSummary(user.id),
+    prisma.exportSnapshot.count({ where: { userId: user.id } }),
     prisma.profile.findUnique({ where: { id: user.id }, select: { displayName: true } }),
     getCurrentAthleteProfile(user.id),
     getCurrentWahooProfile(user.id),
@@ -129,6 +131,14 @@ export default async function DashboardPage({
 
   const statusMessage = getStatusMessage(resolvedSearchParams);
   const greetingName = profile?.displayName?.trim() || user.email || "Athlete";
+  const hasActivities = summary.totalActivities > 0;
+  const justConnected = resolvedSearchParams.connected === "1";
+  const hasCompletedOnboarding = exportSnapshotCount > 0;
+  const showOnboarding =
+    resolvedSearchParams.onboarding === "1" || !hasCompletedOnboarding;
+  const shouldFocusExport =
+    resolvedSearchParams.focus === "export" || resolvedSearchParams.onboarding === "1" || justConnected;
+  const onboardingJustCompleted = resolvedSearchParams.onboarding_done === "1";
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-10 md:px-10">
@@ -142,6 +152,25 @@ export default async function DashboardPage({
 
       <div className="grid gap-6 lg:grid-cols-[1.2fr_1fr]">
         <section className="space-y-6">
+          {onboardingJustCompleted ? (
+            <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="font-semibold">Onboarding abgeschlossen</p>
+                  <p className="mt-1">
+                    Starker Start. Dein erster Export ist erstellt und dein Dashboard ist jetzt im normalen Modus.
+                  </p>
+                </div>
+                <Link
+                  className="rounded-full border border-emerald-300 bg-white px-4 py-2 font-medium text-emerald-700 hover:bg-emerald-100"
+                  href="/dashboard"
+                >
+                  Hinweis ausblenden
+                </Link>
+              </div>
+            </section>
+          ) : null}
+
           <article className="rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-7">
             <div className="flex flex-wrap items-center justify-between gap-4">
               <div>
@@ -247,7 +276,100 @@ export default async function DashboardPage({
                 {statusMessage.text}
               </div>
             ) : null}
+
+            {justConnected ? (
+              <div className="mt-4 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+                Strava ist verbunden. Wir setzen den Zeitraum auf 7 Tage und fuehren dich direkt zum ersten Export.
+                <a className="ml-1 font-semibold underline" href="#export-panel">
+                  Zum Export springen
+                </a>
+              </div>
+            ) : null}
           </article>
+
+          {showOnboarding ? (
+            <section className="rounded-2xl border border-[color:var(--accent)]/25 bg-[color:var(--accent)]/6 p-5">
+              <p className="text-xs uppercase tracking-[0.08em] text-[color:var(--accent)]/75">First Run</p>
+              <h2 className="mt-2 text-xl font-semibold tracking-tight">In 3 Schritten zum ersten Export</h2>
+
+              <div className="mt-4 grid gap-3 md:grid-cols-3">
+                {[
+                  {
+                    title: "1. Strava verbinden",
+                    done: stravaConnection.connected,
+                    text: "OAuth-Verbindung aktivieren, damit wir deine Aktivitaeten abrufen koennen.",
+                  },
+                  {
+                    title: "2. Zeitraum waehlen",
+                    done: stravaConnection.connected,
+                    text: "Standard ist bereits auf 7 Tage gesetzt fuer den schnellsten Einstieg.",
+                  },
+                  {
+                    title: "3. Export erstellen",
+                    done: hasActivities,
+                    text: "JSON + GPT-Block erzeugen und direkt kopieren oder herunterladen.",
+                  },
+                ].map((step) => (
+                  <article key={step.title} className="rounded-2xl border border-black/10 bg-white/85 p-4">
+                    <p className="text-sm font-semibold text-black/82">{step.title}</p>
+                    <p className="mt-2 text-sm text-black/66">{step.text}</p>
+                    <p
+                      className={`mt-3 inline-flex rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] ${
+                        step.done ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-800"
+                      }`}
+                    >
+                      {step.done ? "Erledigt" : "Offen"}
+                    </p>
+                  </article>
+                ))}
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2">
+                {!stravaConnection.connected ? (
+                  <ConnectButton
+                    connected={stravaConnection.connected}
+                    disabled={!stravaConnection.canStartOauth}
+                    provider="strava"
+                  />
+                ) : null}
+                {stravaConnection.connected ? (
+                  <a
+                    className="inline-flex items-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:translate-y-[-1px]"
+                    href="#export-panel"
+                  >
+                    Ersten 7-Tage-Export starten
+                  </a>
+                ) : null}
+                {hasActivities ? (
+                  <Link
+                    className="inline-flex items-center rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
+                    href="/activities?range=7"
+                  >
+                    Export in Aktivitaeten ansehen
+                  </Link>
+                ) : null}
+              </div>
+            </section>
+          ) : null}
+
+          {stravaConnection.connected && !hasActivities ? (
+            <section className="rounded-2xl border border-black/10 bg-white/85 p-5">
+              <p className="text-sm font-semibold text-black/82">Noch keine Aktivitaeten gefunden</p>
+              <p className="mt-2 text-sm text-black/66">
+                Die Verbindung steht, aber im aktuellen Datenstand sind noch keine Einheiten verfuegbar.
+                Starte zuerst einen 7-Tage-Export oder synchronisiere erneut.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <a
+                  className="inline-flex items-center rounded-full bg-[color:var(--accent)] px-5 py-3 text-sm font-medium text-[color:var(--accent-foreground)] transition hover:translate-y-[-1px]"
+                  href="#export-panel"
+                >
+                  Zum Export
+                </a>
+                <SyncButton disabled={!stravaConnection.connected} provider="strava" />
+              </div>
+            </section>
+          ) : null}
 
           <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
@@ -352,7 +474,12 @@ export default async function DashboardPage({
         </section>
 
         <aside className="space-y-6">
-          <ExportPanel connected={stravaConnection.connected} />
+          <ExportPanel
+            autoStart={shouldFocusExport && stravaConnection.connected}
+            connected={stravaConnection.connected}
+            emphasizeOnboarding={showOnboarding}
+            refreshOnFirstSuccess={!hasCompletedOnboarding}
+          />
         </aside>
       </div>
     </main>

@@ -4,6 +4,7 @@ import { Prisma } from "@prisma/client";
 import { AppNav } from "@/components/app-nav";
 import { dedupeActivitiesAcrossProviders } from "@/lib/activity-dedupe";
 import { requireAppUserId } from "@/lib/auth";
+import { getConnectionStatus } from "@/lib/connection-status";
 import { prisma } from "@/lib/prisma";
 
 const FALLBACK_TIME_ZONE = "Europe/Berlin";
@@ -135,7 +136,7 @@ export default async function ActivitiesPage({
     ...(Object.keys(startDateFilter).length > 0 ? { startDate: startDateFilter } : {}),
   };
 
-  const [activities, typeOptions] = await Promise.all([
+  const [activities, typeOptions, stravaConnection] = await Promise.all([
     prisma.activity.findMany({
       where,
       orderBy: {
@@ -168,6 +169,7 @@ export default async function ActivitiesPage({
         type: "asc",
       },
     }),
+    getConnectionStatus(userId),
   ]);
   const mergedActivities = dedupeActivitiesAcrossProviders(activities);
 
@@ -319,9 +321,66 @@ export default async function ActivitiesPage({
         ))}
 
         {mergedActivities.length === 0 ? (
-          <p className="rounded-2xl border border-black/10 bg-white/85 p-5 text-sm text-black/65">
-            Keine Aktivitaeten fuer den ausgewaehlten Filter gefunden.
-          </p>
+          !stravaConnection.connected ? (
+            <div className="rounded-2xl border border-[color:var(--accent)]/22 bg-[color:var(--accent)]/7 p-5 text-sm">
+              <p className="font-semibold text-[color:var(--accent)]">Noch keine Strava-Verbindung aktiv</p>
+              <p className="mt-2 text-black/66">
+                Verbinde zuerst Strava im Dashboard. Danach kannst du direkt den 7-Tage-Export starten
+                und hier deine Aktivitaeten sehen.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  className="rounded-full bg-[color:var(--accent)] px-4 py-2 font-medium text-[color:var(--accent-foreground)]"
+                  href="/dashboard"
+                >
+                  Zum Dashboard
+                </Link>
+              </div>
+            </div>
+          ) : activeFilterCount > 0 ? (
+            <div className="rounded-2xl border border-black/10 bg-white/85 p-5 text-sm">
+              <p className="font-semibold text-black/80">Keine Treffer fuer die gesetzten Filter</p>
+              <p className="mt-2 text-black/65">
+                Passe Zeitraum, Suchbegriff oder Provider an, damit wieder Aktivitaeten angezeigt werden.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  className="rounded-full border border-black/10 px-4 py-2 font-medium text-black/72 hover:bg-black/5"
+                  href="/activities"
+                >
+                  Filter zuruecksetzen
+                </Link>
+                <Link
+                  className="rounded-full bg-[color:var(--accent)] px-4 py-2 font-medium text-[color:var(--accent-foreground)]"
+                  href="/activities?range=7"
+                >
+                  Letzte 7 Tage
+                </Link>
+              </div>
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-black/10 bg-white/85 p-5 text-sm">
+              <p className="font-semibold text-black/80">Noch keine Aktivitaeten importiert</p>
+              <p className="mt-2 text-black/65">
+                Deine Verbindung steht, aber es wurden noch keine Aktivitaeten fuer die Uebersicht geladen.
+                Starte den ersten Export im Dashboard.
+              </p>
+              <div className="mt-4 flex flex-wrap gap-2">
+                <Link
+                  className="rounded-full bg-[color:var(--accent)] px-4 py-2 font-medium text-[color:var(--accent-foreground)]"
+                  href="/dashboard#export-panel"
+                >
+                  Ersten Export starten
+                </Link>
+                <Link
+                  className="rounded-full border border-black/10 px-4 py-2 font-medium text-black/72 hover:bg-black/5"
+                  href="/dashboard"
+                >
+                  Dashboard oeffnen
+                </Link>
+              </div>
+            </div>
+          )
         ) : null}
       </section>
     </main>
