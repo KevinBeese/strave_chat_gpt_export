@@ -26,6 +26,21 @@ const periodOptions = [
   { label: "30 Tage", value: 30 },
 ] as const;
 
+const activityTypeOptions = [
+  { label: "Alle", value: "" },
+  { label: "Run", value: "Run" },
+  { label: "Ride", value: "Ride" },
+  { label: "Swim", value: "Swim" },
+  { label: "Workout", value: "Workout" },
+] as const;
+
+const intensityOptions = [
+  { label: "Alle", value: "" },
+  { label: "Easy", value: "easy" },
+  { label: "Moderate", value: "moderate" },
+  { label: "Hard", value: "hard" },
+] as const;
+
 const snapshotSportFilterOptions: { label: string; value: SnapshotSportFilter }[] = [
   { label: "All", value: "all" },
   { label: "Ride", value: "ride" },
@@ -933,6 +948,10 @@ export function ExportPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number>(7);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedActivityType, setSelectedActivityType] = useState("");
+  const [selectedIntensityBucket, setSelectedIntensityBucket] = useState("");
   const [selectedSportFilter, setSelectedSportFilter] =
     useState<SnapshotSportFilter>("all");
   const hasAutoStarted = useRef(false);
@@ -943,7 +962,20 @@ export function ExportPanel({
     setError(null);
 
     try {
-      const response = await fetch(`/api/strava/export?days=${selectedDays}`);
+      const params = new URLSearchParams({ days: String(selectedDays) });
+      if (dateFrom) {
+        params.set("date_from", dateFrom);
+      }
+      if (dateTo) {
+        params.set("date_to", dateTo);
+      }
+      if (selectedActivityType) {
+        params.set("activity_type", selectedActivityType);
+      }
+      if (selectedIntensityBucket) {
+        params.set("intensity_bucket", selectedIntensityBucket);
+      }
+      const response = await fetch(`/api/strava/export?${params.toString()}`);
       const payload = (await response.json()) as ExportPayload | { error?: string };
 
       if (!response.ok) {
@@ -967,7 +999,15 @@ export function ExportPanel({
     } finally {
       setLoading(false);
     }
-  }, [refreshOnFirstSuccess, router, selectedDays]);
+  }, [
+    dateFrom,
+    dateTo,
+    refreshOnFirstSuccess,
+    router,
+    selectedActivityType,
+    selectedDays,
+    selectedIntensityBucket,
+  ]);
 
   useEffect(() => {
     if (!connected || !autoStart || hasAutoStarted.current) {
@@ -1051,6 +1091,56 @@ export function ExportPanel({
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Von
+          <input
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setDateFrom(event.target.value)}
+            type="date"
+            value={dateFrom}
+          />
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Bis
+          <input
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setDateTo(event.target.value)}
+            type="date"
+            value={dateTo}
+          />
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Typ
+          <select
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setSelectedActivityType(event.target.value)}
+            value={selectedActivityType}
+          >
+            {activityTypeOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Intensitaet
+          <select
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setSelectedIntensityBucket(event.target.value)}
+            value={selectedIntensityBucket}
+          >
+            {intensityOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className="rounded-full bg-black px-5 py-3 text-sm font-medium text-white transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!connected || loading}
@@ -1083,6 +1173,18 @@ export function ExportPanel({
           </button>
         ) : null}
       </div>
+      {data?.appliedFilters &&
+      (data.appliedFilters.dateFrom ||
+        data.appliedFilters.dateTo ||
+        data.appliedFilters.activityType ||
+        data.appliedFilters.intensityBucket) ? (
+        <p className="mt-3 text-xs leading-5 text-black/56">
+          Aktive Filter: Zeitraum{" "}
+          {data.appliedFilters.dateFrom ?? "offen"} bis {data.appliedFilters.dateTo ?? "offen"}
+          {" · "}Typ {data.appliedFilters.activityType ?? "alle"}
+          {" · "}Intensitaet {data.appliedFilters.intensityBucket ?? "alle"}
+        </p>
+      ) : null}
       {snapshotCompare ? (
         <div className="mt-8 max-w-3xl space-y-3">
           <div className="rounded-xl border border-black/8 bg-black/[0.03] p-3">

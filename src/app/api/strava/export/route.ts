@@ -5,6 +5,11 @@ import {
   syncAndLoadActivities,
 } from "@/lib/strava";
 import { getAuthenticatedAppUserId } from "@/lib/auth";
+import {
+  filterActivitiesForExport,
+  parseExportFilters,
+  resolveDaysForDateRange,
+} from "@/lib/export-filters";
 import { logger } from "@/lib/logger";
 import { toApiErrorResponse } from "@/lib/route-errors";
 
@@ -28,9 +33,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const filters = parseExportFilters(request.nextUrl.searchParams);
+  const effectiveDays = resolveDaysForDateRange(days, filters);
+
   try {
     const { activities, athleteZones, grantedScopes, syncMeta } = await syncAndLoadActivities(
-      days,
+      effectiveDays,
       userId,
     );
     if (syncMeta.partial) {
@@ -40,9 +48,11 @@ export async function GET(request: NextRequest) {
         zonesPartial: syncMeta.zonesPartial,
       });
     }
+    const filteredActivities = filterActivitiesForExport(activities, filters);
     const payload = await buildAndStoreExportPayload(
-      activities,
+      filteredActivities,
       days,
+      filters,
       athleteZones,
       grantedScopes,
       userId,
@@ -53,6 +63,8 @@ export async function GET(request: NextRequest) {
       route: "/api/strava/export",
       userId,
       days,
+      effectiveDays,
+      filters,
     });
     return toApiErrorResponse(error, "Unable to export Strava activities.");
   }

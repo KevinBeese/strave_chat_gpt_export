@@ -166,6 +166,12 @@ export type NormalizedActivity = {
 export type ExportPayload = {
   generatedAt: string;
   selectedDays: number;
+  appliedFilters?: {
+    dateFrom: string | null;
+    dateTo: string | null;
+    activityType: string | null;
+    intensityBucket: "easy" | "moderate" | "hard" | null;
+  };
   grantedScopes: string[];
   missingScopes: string[];
   athleteZones: AthleteZones | null;

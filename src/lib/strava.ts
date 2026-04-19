@@ -1734,6 +1734,7 @@ async function saveExportSnapshot(payload: ExportPayload, userId: string) {
 export function buildExportPayload(
   activities: NormalizedActivity[],
   days: number,
+  appliedFilters: ExportPayload["appliedFilters"],
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
   snapshots: ExportSnapshotSummary[],
@@ -1749,6 +1750,7 @@ export function buildExportPayload(
     rangeStart,
     rangeEnd,
     days,
+    appliedFilters,
     athleteZones,
     grantedScopes,
     requiredScopes,
@@ -1761,6 +1763,7 @@ export function buildExportPayload(
 export async function buildAndStoreExportPayload(
   activities: NormalizedActivity[],
   days: number,
+  appliedFilters: ExportPayload["appliedFilters"],
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
   userId: string,
@@ -1776,6 +1779,7 @@ export async function buildAndStoreExportPayload(
   const payload = buildExportPayload(
     activities,
     days,
+    appliedFilters,
     athleteZones,
     grantedScopes,
     previousSnapshots,
