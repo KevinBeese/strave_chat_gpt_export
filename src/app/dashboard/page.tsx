@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { AppNav } from "@/components/app-nav";
+import { Beat81ImportPanel } from "@/components/beat81-import-panel";
 import { ConnectButton } from "@/components/connect-button";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
@@ -580,6 +581,7 @@ export default async function DashboardPage({
         </section>
 
         <aside className="space-y-6">
+          <Beat81ImportPanel />
           <ExportPanel
             autoStart={shouldFocusExport && stravaConnection.connected}
             hasLocalActivities={summary.totalActivities > 0}
