@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import {
   buildAndStoreExportPayload,
+  loadStoredActivitiesForExport,
   syncAndLoadActivities,
 } from "@/lib/strava";
 import { getAuthenticatedAppUserId } from "@/lib/auth";
@@ -14,6 +15,7 @@ import { logger } from "@/lib/logger";
 import { toApiErrorResponse } from "@/lib/route-errors";
 
 const allowedDays = new Set([7, 14, 30]);
+const allowedSources = new Set(["sync", "local"]);
 
 export async function GET(request: NextRequest) {
   const userId = await getAuthenticatedAppUserId();
@@ -35,12 +37,21 @@ export async function GET(request: NextRequest) {
 
   const filters = parseExportFilters(request.nextUrl.searchParams);
   const effectiveDays = resolveDaysForDateRange(days, filters);
+  const requestedSource = request.nextUrl.searchParams.get("source") ?? "sync";
+  const source = requestedSource.toLowerCase();
+
+  if (!allowedSources.has(source)) {
+    return NextResponse.json(
+      { error: "source must be one of sync or local" },
+      { status: 400 },
+    );
+  }
 
   try {
-    const { activities, athleteZones, grantedScopes, syncMeta } = await syncAndLoadActivities(
-      effectiveDays,
-      userId,
-    );
+    const { activities, athleteZones, grantedScopes, syncMeta } =
+      source === "local"
+        ? await loadStoredActivitiesForExport(effectiveDays, userId)
+        : await syncAndLoadActivities(effectiveDays, userId);
     if (syncMeta.partial) {
       logger.warn("Strava sync completed with partial enrichment.", {
         userId,
@@ -64,6 +75,7 @@ export async function GET(request: NextRequest) {
       userId,
       days,
       effectiveDays,
+      source,
       filters,
     });
     return toApiErrorResponse(error, "Unable to export Strava activities.");

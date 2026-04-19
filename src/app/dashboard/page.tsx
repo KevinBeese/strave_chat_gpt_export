@@ -564,7 +564,7 @@ export default async function DashboardPage({
         <aside className="space-y-6">
           <ExportPanel
             autoStart={shouldFocusExport && stravaConnection.connected}
-            connected={stravaConnection.connected}
+            hasLocalActivities={summary.totalActivities > 0}
             emphasizeOnboarding={showOnboarding}
             refreshOnFirstSuccess={!hasCompletedOnboarding}
           />
