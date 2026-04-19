@@ -12,6 +12,7 @@ import { getConnectionStatus } from "@/lib/connection-status";
 import { getDashboardSummary } from "@/lib/dashboard";
 import { prisma } from "@/lib/prisma";
 import { getCurrentAthleteProfile } from "@/lib/strava";
+import { getWeeklySummary } from "@/lib/weekly-summary";
 import { getCurrentWahooProfile, getWahooConnectionStatus } from "@/lib/wahoo";
 
 export const dynamic = "force-dynamic";
@@ -101,6 +102,15 @@ function formatDate(dateIso: string) {
   }).format(new Date(dateIso));
 }
 
+function formatDeltaLabel(value: number | null, suffix = "") {
+  if (value === null) {
+    return "n/a";
+  }
+
+  const sign = value > 0 ? "+" : "";
+  return `${sign}${value.toLocaleString("de-DE", { maximumFractionDigits: 1 })}${suffix}`;
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -114,6 +124,7 @@ export default async function DashboardPage({
     stravaConnection,
     wahooConnection,
     summary,
+    weeklySummary,
     exportSnapshotCount,
     profile,
     athleteProfile,
@@ -123,6 +134,7 @@ export default async function DashboardPage({
     getConnectionStatus(user.id),
     getWahooConnectionStatus(user.id),
     getDashboardSummary(user.id),
+    getWeeklySummary(user.id),
     prisma.exportSnapshot.count({ where: { userId: user.id } }),
     prisma.profile.findUnique({ where: { id: user.id }, select: { displayName: true } }),
     getCurrentAthleteProfile(user.id),
@@ -417,6 +429,82 @@ export default async function DashboardPage({
                 Details ansehen
               </Link>
             </article>
+          </section>
+
+          <section className="rounded-2xl border border-[color:var(--accent)]/25 bg-[color:var(--accent)]/6 p-5">
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p className="text-xs uppercase tracking-[0.08em] text-[color:var(--accent)]/75">
+                  Aha Feature
+                </p>
+                <h2 className="mt-1 text-xl font-semibold tracking-tight">Wochenzusammenfassung</h2>
+                <p className="mt-2 text-sm text-black/70">
+                  Zeitraum: {formatDate(weeklySummary.week_start)} bis {formatDate(weeklySummary.week_end)}
+                </p>
+              </div>
+              <a
+                className="inline-flex items-center rounded-full border border-[color:var(--accent)]/30 bg-white px-4 py-2 text-sm font-medium text-[color:var(--accent)] hover:bg-[color:var(--accent)]/10"
+                href={`/api/export/weekly.md?weekStart=${weeklySummary.week_start}`}
+              >
+                Markdown exportieren
+              </a>
+            </div>
+
+            <div className="mt-4 grid gap-3 md:grid-cols-3">
+              <article className="rounded-xl border border-black/10 bg-white/90 p-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Einheiten</p>
+                <p className="mt-1 text-xl font-semibold">{weeklySummary.metrics.total_activities}</p>
+              </article>
+              <article className="rounded-xl border border-black/10 bg-white/90 p-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Distanz</p>
+                <p className="mt-1 text-xl font-semibold">{weeklySummary.metrics.total_distance_km} km</p>
+              </article>
+              <article className="rounded-xl border border-black/10 bg-white/90 p-3">
+                <p className="text-xs uppercase tracking-[0.08em] text-black/45">Zeit</p>
+                <p className="mt-1 text-xl font-semibold">{weeklySummary.metrics.total_moving_time_h} h</p>
+              </article>
+            </div>
+
+            {weeklySummary.metrics.total_activities > 0 ? (
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <article className="rounded-xl border border-black/10 bg-white/90 p-3 text-sm">
+                  <p className="font-medium text-black/80">Highlights</p>
+                  <p className="mt-2 text-black/70">
+                    Top Typ: {weeklySummary.highlights.top_activity_type.type ?? "n/a"} (
+                    {weeklySummary.highlights.top_activity_type.count})
+                  </p>
+                  <p className="text-black/70">
+                    Laengste Einheit: {weeklySummary.highlights.longest_activity?.name ?? "n/a"}
+                  </p>
+                  <p className="text-black/70">
+                    Haerteste Einheit: {weeklySummary.highlights.hardest_activity?.name ?? "n/a"}
+                  </p>
+                </article>
+
+                <article className="rounded-xl border border-black/10 bg-white/90 p-3 text-sm">
+                  <p className="font-medium text-black/80">Vergleich zur Vorwoche</p>
+                  <p className="mt-2 text-black/70">
+                    Einheiten: {formatDeltaLabel(weeklySummary.comparison.vs_previous_week.activities_delta_abs)}
+                  </p>
+                  <p className="text-black/70">
+                    Distanz: {formatDeltaLabel(weeklySummary.comparison.vs_previous_week.distance_delta_km_abs, " km")} (
+                    {formatDeltaLabel(weeklySummary.comparison.vs_previous_week.distance_delta_pct, " %")})
+                  </p>
+                  <p className="text-black/70">
+                    Zeit: {formatDeltaLabel(weeklySummary.comparison.vs_previous_week.moving_time_delta_h_abs, " h")} (
+                    {formatDeltaLabel(weeklySummary.comparison.vs_previous_week.moving_time_delta_pct, " %")})
+                  </p>
+                </article>
+              </div>
+            ) : (
+              <p className="mt-4 rounded-xl border border-black/10 bg-white/90 p-3 text-sm text-black/65">
+                Fuer diese Woche sind noch keine Aktivitaeten vorhanden.
+              </p>
+            )}
+
+            <p className="mt-4 rounded-xl border border-black/10 bg-white/90 p-3 text-sm text-black/75">
+              {weeklySummary.summary_text}
+            </p>
           </section>
 
           <section className="rounded-2xl border border-black/10 bg-white/80 p-5">

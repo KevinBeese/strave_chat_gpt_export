@@ -318,6 +318,7 @@ export function createExportPayload(
   rangeStart: string,
   rangeEnd: string,
   selectedDays: number,
+  appliedFilters: ExportPayload["appliedFilters"],
   athleteZones: AthleteZones | null,
   grantedScopes: string[],
   requiredScopes: string[],
@@ -330,6 +331,7 @@ export function createExportPayload(
   return {
     generatedAt: new Date().toISOString(),
     selectedDays,
+    appliedFilters,
     grantedScopes,
     missingScopes,
     athleteZones,

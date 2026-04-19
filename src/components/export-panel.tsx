@@ -26,6 +26,21 @@ const periodOptions = [
   { label: "30 Tage", value: 30 },
 ] as const;
 
+const activityTypeOptions = [
+  { label: "Alle", value: "" },
+  { label: "Run", value: "Run" },
+  { label: "Ride", value: "Ride" },
+  { label: "Swim", value: "Swim" },
+  { label: "Workout", value: "Workout" },
+] as const;
+
+const intensityOptions = [
+  { label: "Alle", value: "" },
+  { label: "Easy", value: "easy" },
+  { label: "Moderate", value: "moderate" },
+  { label: "Hard", value: "hard" },
+] as const;
+
 const snapshotSportFilterOptions: { label: string; value: SnapshotSportFilter }[] = [
   { label: "All", value: "all" },
   { label: "Ride", value: "ride" },
@@ -46,6 +61,20 @@ function formatDateTime(dateIso: string) {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(new Date(dateIso));
+}
+
+function formatDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getTodayDateInputValue() {
+  return formatDateInputValue(new Date());
+}
+
+function getDateInputValueDaysAgo(daysAgo: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return formatDateInputValue(date);
 }
 
 function formatDuration(seconds: number) {
@@ -933,17 +962,56 @@ export function ExportPanel({
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedDays, setSelectedDays] = useState<number>(7);
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [selectedActivityType, setSelectedActivityType] = useState("");
+  const [selectedIntensityBucket, setSelectedIntensityBucket] = useState("");
   const [selectedSportFilter, setSelectedSportFilter] =
     useState<SnapshotSportFilter>("all");
   const hasAutoStarted = useRef(false);
   const hasRefreshedAfterSuccess = useRef(false);
+
+  const applyPresetLast7Days = useCallback(() => {
+    setSelectedDays(7);
+    setDateFrom(getDateInputValueDaysAgo(6));
+    setDateTo(getTodayDateInputValue());
+  }, []);
+
+  const applyPresetOnlyRuns = useCallback(() => {
+    setSelectedActivityType("Run");
+  }, []);
+
+  const applyPresetHardSessions = useCallback(() => {
+    setSelectedIntensityBucket("hard");
+  }, []);
+
+  const resetAllFilters = useCallback(() => {
+    setSelectedDays(7);
+    setDateFrom("");
+    setDateTo("");
+    setSelectedActivityType("");
+    setSelectedIntensityBucket("");
+  }, []);
 
   const handleExport = useCallback(async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const response = await fetch(`/api/strava/export?days=${selectedDays}`);
+      const params = new URLSearchParams({ days: String(selectedDays) });
+      if (dateFrom) {
+        params.set("date_from", dateFrom);
+      }
+      if (dateTo) {
+        params.set("date_to", dateTo);
+      }
+      if (selectedActivityType) {
+        params.set("activity_type", selectedActivityType);
+      }
+      if (selectedIntensityBucket) {
+        params.set("intensity_bucket", selectedIntensityBucket);
+      }
+      const response = await fetch(`/api/strava/export?${params.toString()}`);
       const payload = (await response.json()) as ExportPayload | { error?: string };
 
       if (!response.ok) {
@@ -967,7 +1035,15 @@ export function ExportPanel({
     } finally {
       setLoading(false);
     }
-  }, [refreshOnFirstSuccess, router, selectedDays]);
+  }, [
+    dateFrom,
+    dateTo,
+    refreshOnFirstSuccess,
+    router,
+    selectedActivityType,
+    selectedDays,
+    selectedIntensityBucket,
+  ]);
 
   useEffect(() => {
     if (!connected || !autoStart || hasAutoStarted.current) {
@@ -1051,6 +1127,56 @@ export function ExportPanel({
             ))}
           </select>
         </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Von
+          <input
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setDateFrom(event.target.value)}
+            type="date"
+            value={dateFrom}
+          />
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Bis
+          <input
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setDateTo(event.target.value)}
+            type="date"
+            value={dateTo}
+          />
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Typ
+          <select
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setSelectedActivityType(event.target.value)}
+            value={selectedActivityType}
+          >
+            {activityTypeOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex items-center gap-3 rounded-full border border-[color:var(--border)] bg-white px-4 py-2 text-sm text-black/70">
+          Intensitaet
+          <select
+            className="bg-transparent font-medium outline-none"
+            disabled={loading}
+            onChange={(event) => setSelectedIntensityBucket(event.target.value)}
+            value={selectedIntensityBucket}
+          >
+            {intensityOptions.map((option) => (
+              <option key={option.value || "all"} value={option.value}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </label>
         <button
           className="rounded-full bg-black px-5 py-3 text-sm font-medium text-white transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-40"
           disabled={!connected || loading}
@@ -1083,6 +1209,52 @@ export function ExportPanel({
           </button>
         ) : null}
       </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetLast7Days}
+          type="button"
+        >
+          Letzte 7 Tage
+        </button>
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetOnlyRuns}
+          type="button"
+        >
+          Nur Runs
+        </button>
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetHardSessions}
+          type="button"
+        >
+          Harte Sessions
+        </button>
+        <button
+          className="rounded-full border border-black/15 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-black/60 hover:bg-black/5"
+          disabled={loading}
+          onClick={resetAllFilters}
+          type="button"
+        >
+          Filter zuruecksetzen
+        </button>
+      </div>
+      {data?.appliedFilters &&
+      (data.appliedFilters.dateFrom ||
+        data.appliedFilters.dateTo ||
+        data.appliedFilters.activityType ||
+        data.appliedFilters.intensityBucket) ? (
+        <p className="mt-3 text-xs leading-5 text-black/56">
+          Aktive Filter: Zeitraum{" "}
+          {data.appliedFilters.dateFrom ?? "offen"} bis {data.appliedFilters.dateTo ?? "offen"}
+          {" · "}Typ {data.appliedFilters.activityType ?? "alle"}
+          {" · "}Intensitaet {data.appliedFilters.intensityBucket ?? "alle"}
+        </p>
+      ) : null}
       {snapshotCompare ? (
         <div className="mt-8 max-w-3xl space-y-3">
           <div className="rounded-xl border border-black/8 bg-black/[0.03] p-3">
