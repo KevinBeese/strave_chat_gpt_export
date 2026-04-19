@@ -1642,6 +1642,32 @@ export async function syncAndLoadActivities(days: number, userId: string) {
   };
 }
 
+export async function loadStoredActivitiesForExport(days: number, userId: string) {
+  const afterDate = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  const storedActivities = await prisma.activity.findMany({
+    where: {
+      userId,
+      startDate: {
+        gte: afterDate,
+      },
+    },
+    orderBy: {
+      startDate: "asc",
+    },
+  });
+
+  return {
+    activities: storedActivities.map(fromStoredActivity),
+    athleteZones: null,
+    grantedScopes: [] as string[],
+    syncMeta: {
+      partial: false,
+      detailsPartial: false,
+      zonesPartial: false,
+    },
+  };
+}
+
 type StoredSnapshotPayload = Pick<
   ExportPayload,
   "selectedDays" | "activityCount" | "rangeLabel" | "athleteZones" | "activities"

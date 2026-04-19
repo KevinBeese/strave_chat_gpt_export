@@ -947,12 +947,12 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
 }
 
 export function ExportPanel({
-  connected,
+  hasLocalActivities = false,
   autoStart = false,
   emphasizeOnboarding = false,
   refreshOnFirstSuccess = false,
 }: {
-  connected: boolean;
+  hasLocalActivities?: boolean;
   autoStart?: boolean;
   emphasizeOnboarding?: boolean;
   refreshOnFirstSuccess?: boolean;
@@ -970,6 +970,8 @@ export function ExportPanel({
     useState<SnapshotSportFilter>("all");
   const hasAutoStarted = useRef(false);
   const hasRefreshedAfterSuccess = useRef(false);
+  const useLocalSource = true;
+  const canExport = true;
 
   const applyPresetLast7Days = useCallback(() => {
     setSelectedDays(7);
@@ -1011,6 +1013,7 @@ export function ExportPanel({
       if (selectedIntensityBucket) {
         params.set("intensity_bucket", selectedIntensityBucket);
       }
+      params.set("source", "local");
       const response = await fetch(`/api/strava/export?${params.toString()}`);
       const payload = (await response.json()) as ExportPayload | { error?: string };
 
@@ -1031,7 +1034,7 @@ export function ExportPanel({
         router.refresh();
       }
     } catch {
-      setError("Export fehlgeschlagen. Bitte pruefe deine Verbindung.");
+      setError("Export aus lokaler Datenbank fehlgeschlagen.");
     } finally {
       setLoading(false);
     }
@@ -1046,13 +1049,13 @@ export function ExportPanel({
   ]);
 
   useEffect(() => {
-    if (!connected || !autoStart || hasAutoStarted.current) {
+    if (!canExport || !autoStart || hasAutoStarted.current) {
       return;
     }
 
     hasAutoStarted.current = true;
     void handleExport();
-  }, [autoStart, connected, handleExport]);
+  }, [autoStart, canExport, handleExport]);
 
   const jsonValue = data ? JSON.stringify(data, null, 2) : "";
   const gptSummary = data?.chatGptPrompt ?? "";
@@ -1090,6 +1093,17 @@ export function ExportPanel({
       id="export-panel"
     >
       <p className="text-sm uppercase tracking-[0.14em] text-black/55">Export</p>
+      <div className="mt-3">
+        <span
+          className={`inline-flex rounded-full border px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.08em] ${
+            useLocalSource
+              ? "border-emerald-300 bg-emerald-50 text-emerald-700"
+              : "border-sky-300 bg-sky-50 text-sky-700"
+          }`}
+        >
+          {useLocalSource ? "Lokale DB" : "Live Sync"}
+        </span>
+      </div>
       <h2 className="mt-4 text-3xl font-semibold tracking-tight">
         Strava-Zeitraum fuer ChatGPT vorbereiten
       </h2>
@@ -1179,11 +1193,11 @@ export function ExportPanel({
         </label>
         <button
           className="rounded-full bg-black px-5 py-3 text-sm font-medium text-white transition hover:translate-y-[-1px] disabled:cursor-not-allowed disabled:opacity-40"
-          disabled={!connected || loading}
+          disabled={!canExport || loading}
           onClick={handleExport}
           type="button"
         >
-          {loading ? "Export laeuft..." : `${selectedDays} Tage exportieren`}
+          {loading ? "Export laeuft..." : `${selectedDays} Tage aus lokaler DB exportieren`}
         </button>
         {gptSummary ? <CopyButton value={gptSummary} /> : null}
         {jsonValue ? (
@@ -1317,23 +1331,25 @@ export function ExportPanel({
         </div>
       ) : null}
 
-      {!connected ? (
-        <div className="mt-5 rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/8 p-4">
-          <p className="text-sm font-semibold text-[color:var(--accent)]">Verbindung fehlt</p>
-          <p className="mt-2 text-sm text-black/68">
-            Verbinde zuerst deinen Strava-Account im Dashboard. Danach kannst du direkt den ersten
-            7-Tage-Export erzeugen.
+      {useLocalSource ? (
+        <div className="mt-5 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-700">
+          <p className="font-semibold">Lokaler Export aktiv</p>
+          <p className="mt-2">
+            Export laedt immer aus dem Backlog in der lokalen Datenbank.
+            {!hasLocalActivities
+              ? " Aktuell sind dort noch keine Aktivitaeten vorhanden."
+              : ""}
           </p>
           <Link
-            className="mt-3 inline-flex rounded-full bg-[color:var(--accent)] px-4 py-2 text-sm font-medium text-[color:var(--accent-foreground)]"
+            className="mt-3 inline-flex rounded-full border border-emerald-300 bg-white px-4 py-2 text-sm font-medium text-emerald-700 hover:bg-emerald-100"
             href="/dashboard"
           >
-            Strava verbinden
+            Verbindungen & Sync oeffnen
           </Link>
         </div>
       ) : null}
 
-      {connected && !data && !error ? (
+      {canExport && !data && !error ? (
         <div className="mt-5 rounded-2xl border border-black/10 bg-white/85 p-4 text-sm text-black/68">
           <p className="font-semibold text-black/82">Bereit fuer den ersten Export</p>
           <p className="mt-2">
@@ -1348,7 +1364,7 @@ export function ExportPanel({
           <p>{error}</p>
           <button
             className="mt-3 rounded-full border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 transition hover:bg-red-100"
-            disabled={!connected || loading}
+            disabled={!canExport || loading}
             onClick={handleExport}
             type="button"
           >
