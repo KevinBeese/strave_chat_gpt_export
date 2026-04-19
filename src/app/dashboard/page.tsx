@@ -129,6 +129,8 @@ export default async function DashboardPage({
     profile,
     athleteProfile,
     wahooProfile,
+    latestStravaActivitySync,
+    latestWahooActivitySync,
   ] = await Promise.all([
     searchParams,
     getConnectionStatus(user.id),
@@ -139,6 +141,16 @@ export default async function DashboardPage({
     prisma.profile.findUnique({ where: { id: user.id }, select: { displayName: true } }),
     getCurrentAthleteProfile(user.id),
     getCurrentWahooProfile(user.id),
+    prisma.activity.findFirst({
+      where: { userId: user.id, provider: "strava" },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+    prisma.activity.findFirst({
+      where: { userId: user.id, provider: "wahoo" },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
   ]);
 
   const statusMessage = getStatusMessage(resolvedSearchParams);
@@ -151,6 +163,9 @@ export default async function DashboardPage({
   const shouldFocusExport =
     resolvedSearchParams.focus === "export" || resolvedSearchParams.onboarding === "1" || justConnected;
   const onboardingJustCompleted = resolvedSearchParams.onboarding_done === "1";
+  const quickAnalyzeHref = stravaConnection.connected
+    ? "/dashboard?focus=export#export-panel"
+    : "/dashboard#export-panel";
 
   return (
     <main className="mx-auto min-h-screen max-w-6xl px-6 py-10 md:px-10">
@@ -551,8 +566,11 @@ export default async function DashboardPage({
           <section className="rounded-2xl border border-[color:var(--accent)]/20 bg-[color:var(--accent)]/6 p-5">
             <p className="text-sm font-semibold text-[color:var(--accent)]">Naechste Schritte</p>
             <div className="mt-2 flex flex-wrap gap-2 text-sm">
-              <Link className="rounded-full border border-[color:var(--accent)]/30 px-3 py-1" href="/activities?range=7">
-                Letzte 7 Tage analysieren
+              <Link
+                className="rounded-full border border-[color:var(--accent)]/30 px-3 py-1"
+                href={quickAnalyzeHref}
+              >
+                7-Tage-Export erstellen
               </Link>
               <Link className="rounded-full border border-[color:var(--accent)]/30 px-3 py-1" href="/settings">
                 Profil & Verbindungen anpassen
@@ -565,6 +583,8 @@ export default async function DashboardPage({
           <ExportPanel
             autoStart={shouldFocusExport && stravaConnection.connected}
             hasLocalActivities={summary.totalActivities > 0}
+            lastStravaDbSyncAt={latestStravaActivitySync?.updatedAt.toISOString() ?? null}
+            lastWahooDbSyncAt={latestWahooActivitySync?.updatedAt.toISOString() ?? null}
             emphasizeOnboarding={showOnboarding}
             refreshOnFirstSuccess={!hasCompletedOnboarding}
           />

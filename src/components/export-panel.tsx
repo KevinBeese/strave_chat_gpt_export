@@ -948,11 +948,15 @@ function ActivityCard({ activity }: { activity: NormalizedActivity }) {
 
 export function ExportPanel({
   hasLocalActivities = false,
+  lastStravaDbSyncAt = null,
+  lastWahooDbSyncAt = null,
   autoStart = false,
   emphasizeOnboarding = false,
   refreshOnFirstSuccess = false,
 }: {
   hasLocalActivities?: boolean;
+  lastStravaDbSyncAt?: string | null;
+  lastWahooDbSyncAt?: string | null;
   autoStart?: boolean;
   emphasizeOnboarding?: boolean;
   refreshOnFirstSuccess?: boolean;
@@ -1103,6 +1107,14 @@ export function ExportPanel({
         >
           {useLocalSource ? "Lokale DB" : "Live Sync"}
         </span>
+        <p className="mt-2 text-xs text-black/58">
+          Letzter Strava-Sync:{" "}
+          {lastStravaDbSyncAt ? formatDateTime(lastStravaDbSyncAt) : "noch kein Sync vorhanden"}
+        </p>
+        <p className="mt-1 text-xs text-black/58">
+          Letzter Wahoo-Sync:{" "}
+          {lastWahooDbSyncAt ? formatDateTime(lastWahooDbSyncAt) : "noch kein Sync vorhanden"}
+        </p>
       </div>
       <h2 className="mt-4 text-3xl font-semibold tracking-tight">
         Strava-Zeitraum fuer ChatGPT vorbereiten
