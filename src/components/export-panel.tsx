@@ -63,6 +63,20 @@ function formatDateTime(dateIso: string) {
   }).format(new Date(dateIso));
 }
 
+function formatDateInputValue(date: Date) {
+  return date.toISOString().slice(0, 10);
+}
+
+function getTodayDateInputValue() {
+  return formatDateInputValue(new Date());
+}
+
+function getDateInputValueDaysAgo(daysAgo: number) {
+  const date = new Date();
+  date.setDate(date.getDate() - daysAgo);
+  return formatDateInputValue(date);
+}
+
 function formatDuration(seconds: number) {
   return `${Math.round(seconds / 60)} min`;
 }
@@ -957,6 +971,28 @@ export function ExportPanel({
   const hasAutoStarted = useRef(false);
   const hasRefreshedAfterSuccess = useRef(false);
 
+  const applyPresetLast7Days = useCallback(() => {
+    setSelectedDays(7);
+    setDateFrom(getDateInputValueDaysAgo(6));
+    setDateTo(getTodayDateInputValue());
+  }, []);
+
+  const applyPresetOnlyRuns = useCallback(() => {
+    setSelectedActivityType("Run");
+  }, []);
+
+  const applyPresetHardSessions = useCallback(() => {
+    setSelectedIntensityBucket("hard");
+  }, []);
+
+  const resetAllFilters = useCallback(() => {
+    setSelectedDays(7);
+    setDateFrom("");
+    setDateTo("");
+    setSelectedActivityType("");
+    setSelectedIntensityBucket("");
+  }, []);
+
   const handleExport = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -1172,6 +1208,40 @@ export function ExportPanel({
             TXT laden
           </button>
         ) : null}
+      </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetLast7Days}
+          type="button"
+        >
+          Letzte 7 Tage
+        </button>
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetOnlyRuns}
+          type="button"
+        >
+          Nur Runs
+        </button>
+        <button
+          className="rounded-full border border-[color:var(--accent)]/30 bg-[color:var(--accent)]/8 px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-[color:var(--accent)] hover:bg-[color:var(--accent)]/14"
+          disabled={loading}
+          onClick={applyPresetHardSessions}
+          type="button"
+        >
+          Harte Sessions
+        </button>
+        <button
+          className="rounded-full border border-black/15 bg-white px-3 py-1 text-xs font-semibold uppercase tracking-[0.08em] text-black/60 hover:bg-black/5"
+          disabled={loading}
+          onClick={resetAllFilters}
+          type="button"
+        >
+          Filter zuruecksetzen
+        </button>
       </div>
       {data?.appliedFilters &&
       (data.appliedFilters.dateFrom ||
