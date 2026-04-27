@@ -135,6 +135,19 @@ export default async function AuthPage({
           >
             <h2 className="text-lg font-semibold">Konto erstellen</h2>
             <input name="next" type="hidden" value={nextPath} />
+            <label className="mt-4 block text-sm font-medium text-black/70" htmlFor="sign-up-display-name">
+              Benutzername
+            </label>
+            <input
+              autoComplete="nickname"
+              className="mt-2 w-full rounded-xl border border-black/10 bg-white px-3 py-2 text-sm outline-none ring-[color:var(--accent)] focus:ring-2"
+              id="sign-up-display-name"
+              maxLength={80}
+              name="displayName"
+              placeholder="z. B. Kevin"
+              required
+              type="text"
+            />
             <label className="mt-4 block text-sm font-medium text-black/70" htmlFor="sign-up-email">
               E-Mail
             </label>

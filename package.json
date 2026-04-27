@@ -6,14 +6,27 @@
   "type": "module",
   "scripts": {
     "dev": "next dev",
+    "dev:local": "bash ./scripts/run-with-env.sh ./.env.development.local next dev -p 3000",
+    "dev:flavor": "bash ./scripts/run-with-env.sh ./.env.development.local next dev -p 3000",
     "build": "prisma generate && next build",
+    "build:dev": "bash ./scripts/run-with-env.sh ./.env.development.local npm run build",
+    "build:prod": "bash ./scripts/run-with-env.sh ./.env.production.local npm run build",
     "start": "next start",
     "start:prod": "npm run prisma:push && npm run start",
+    "preview:prod:local": "bash ./scripts/run-with-env.sh ./.env.production.local npm run build && bash ./scripts/run-with-env.sh ./.env.production.local npm run start:prod",
+    "db:up": "docker compose -f docker-compose.local.yml up -d",
+    "db:down": "docker compose -f docker-compose.local.yml down",
+    "db:logs": "docker compose -f docker-compose.local.yml logs -f",
+    "seed:sample": "node ./scripts/seed-sample-data.mjs",
+    "seed:sample:dev": "bash ./scripts/run-with-env.sh ./.env.development.local npm run seed:sample",
+    "seed:sample:prod": "bash ./scripts/run-with-env.sh ./.env.production.local npm run seed:sample",
     "test": "vitest run",
     "lint": "eslint .",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:setup": "npm run prisma:push && npm run prisma:generate"
+    "prisma:setup": "npm run prisma:push && npm run prisma:generate",
+    "prisma:setup:dev": "bash ./scripts/run-with-env.sh ./.env.development.local npm run prisma:setup",
+    "prisma:setup:prod": "bash ./scripts/run-with-env.sh ./.env.production.local npm run prisma:setup"
   },
   "license": "ISC",
   "dependencies": {

@@ -2,6 +2,7 @@ import type { UserRole } from "@prisma/client";
 import Image from "next/image";
 
 import { AppNav } from "@/components/app-nav";
+import { Beat81ImportPanel } from "@/components/beat81-import-panel";
 import { ConnectButton } from "@/components/connect-button";
 import { DeleteAccountButton } from "@/components/delete-account-button";
 import { DisconnectButton } from "@/components/disconnect-button";
@@ -304,6 +305,26 @@ export default async function SettingsPage({
           </div>
         </section>
       </div>
+
+      <section
+        className="mt-5 rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6"
+        id="beat81-import"
+      >
+        <p className="text-xs uppercase tracking-[0.08em] text-black/45">Import</p>
+        <h2 className="mt-2 text-xl font-semibold tracking-tight">Beat81 (manuell)</h2>
+        <p className="mt-2 text-sm text-black/70">
+          Optionaler Bereich fuer Text- oder Screenshot-Import von Beat81 Sessions.
+        </p>
+
+        <details className="mt-4 rounded-2xl border border-black/10 bg-white/85 p-4">
+          <summary className="cursor-pointer text-sm font-medium text-black/80">
+            Beat81 Import einblenden
+          </summary>
+          <div className="mt-4">
+            <Beat81ImportPanel />
+          </div>
+        </details>
+      </section>
 
       {isSuperadmin ? (
         <section className="mt-5 rounded-3xl border border-[color:var(--border)] bg-[color:var(--surface)] p-6">

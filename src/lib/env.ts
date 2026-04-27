@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const envSchema = z.object({
+  APP_ENV: z.enum(["dev", "prod"]).default("dev"),
+  NEXT_PUBLIC_APP_ENV: z.enum(["dev", "prod"]).default("dev"),
   APP_URL: z.string().url(),
   DATABASE_URL: z.string().min(1),
   SESSION_SECRET: z.string().min(12),
@@ -19,6 +21,8 @@ const envSchema = z.object({
 
 export function getEnv() {
   return envSchema.parse({
+    APP_ENV: process.env.APP_ENV,
+    NEXT_PUBLIC_APP_ENV: process.env.NEXT_PUBLIC_APP_ENV,
     APP_URL: process.env.APP_URL,
     DATABASE_URL: process.env.DATABASE_URL,
     SESSION_SECRET: process.env.SESSION_SECRET,

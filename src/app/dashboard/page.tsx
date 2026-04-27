@@ -2,11 +2,10 @@ import Image from "next/image";
 import Link from "next/link";
 
 import { AppNav } from "@/components/app-nav";
-import { Beat81ImportPanel } from "@/components/beat81-import-panel";
 import { ConnectButton } from "@/components/connect-button";
 import { DisconnectButton } from "@/components/disconnect-button";
 import { ExportPanel } from "@/components/export-panel";
-import { PendingSubmitButton } from "@/components/pending-submit-button";
+import { ProviderBulkActions } from "@/components/provider-bulk-actions";
 import { SyncButton } from "@/components/sync-button";
 import { ensureAppUserExists, requireAuthenticatedUser } from "@/lib/auth";
 import { getConnectionStatus } from "@/lib/connection-status";
@@ -112,6 +111,36 @@ function formatDeltaLabel(value: number | null, suffix = "") {
   return `${sign}${value.toLocaleString("de-DE", { maximumFractionDigits: 1 })}${suffix}`;
 }
 
+function getActivityMetricLabel(type: string, distanceMeters: number, movingTimeSeconds: number) {
+  const normalizedType = type.toLowerCase();
+  const shouldUseDuration =
+    normalizedType.includes("workout") ||
+    normalizedType.includes("weighttraining") ||
+    normalizedType.includes("strength");
+
+  if (shouldUseDuration) {
+    return formatDuration(movingTimeSeconds);
+  }
+
+  return formatDistance(distanceMeters);
+}
+
+function ProviderBadge({ provider }: { provider: string }) {
+  const normalizedProvider = provider.toLowerCase();
+  const tone =
+    normalizedProvider === "wahoo"
+      ? "border-cyan-200 bg-cyan-50 text-cyan-700"
+      : "border-orange-200 bg-orange-50 text-orange-700";
+
+  return (
+    <span
+      className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-[0.08em] ${tone}`}
+    >
+      {provider}
+    </span>
+  );
+}
+
 export default async function DashboardPage({
   searchParams,
 }: {
@@ -209,7 +238,6 @@ export default async function DashboardPage({
                   {wahooConnection.connected ? "verbunden" : "nicht verbunden"}
                 </p>
               </div>
-              <SyncButton disabled={!stravaConnection.connected} provider="strava" />
             </div>
 
             <div className="mt-5 grid gap-3 md:grid-cols-2">
@@ -250,6 +278,8 @@ export default async function DashboardPage({
                     provider="strava"
                   />
                   {stravaConnection.connected ? <DisconnectButton provider="strava" /> : null}
+                </div>
+                <div className="mt-2">
                   <SyncButton disabled={!stravaConnection.connected} provider="strava" />
                 </div>
               </div>
@@ -276,19 +306,18 @@ export default async function DashboardPage({
                     provider="wahoo"
                   />
                   {wahooConnection.connected ? <DisconnectButton provider="wahoo" /> : null}
+                </div>
+                <div className="mt-2">
                   <SyncButton disabled={!wahooConnection.connected} provider="wahoo" />
                 </div>
               </div>
             </div>
 
-            <div className="mt-5 flex flex-wrap gap-3">
-              <form action="/auth/sign-out" method="post">
-                <PendingSubmitButton
-                  className="rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
-                  idleLabel="Ausloggen"
-                  pendingLabel="Logge aus..."
-                />
-              </form>
+            <div className="mt-5 flex flex-wrap gap-2">
+              <ProviderBulkActions
+                stravaConnected={stravaConnection.connected}
+                wahooConnected={wahooConnection.connected}
+              />
             </div>
 
             {statusMessage ? (
@@ -373,7 +402,7 @@ export default async function DashboardPage({
                     className="inline-flex items-center rounded-full border border-[color:var(--border)] px-5 py-3 text-sm font-medium text-black/72 transition hover:bg-black/5"
                     href="/activities?range=7"
                   >
-                    Export in Aktivitaeten ansehen
+                    Aktivitaetenliste (7 Tage) ansehen
                   </Link>
                 ) : null}
               </div>
@@ -399,14 +428,10 @@ export default async function DashboardPage({
             </section>
           ) : null}
 
-          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
-              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Aktivitaeten gesamt</p>
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Einheiten gesamt</p>
               <p className="mt-2 text-2xl font-semibold">{summary.totalActivities}</p>
-            </article>
-            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
-              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Gesamtstrecke</p>
-              <p className="mt-2 text-2xl font-semibold">{formatDistance(summary.totalDistanceMeters)}</p>
             </article>
             <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
               <p className="text-xs uppercase tracking-[0.08em] text-black/45">Gesamtzeit</p>
@@ -417,6 +442,32 @@ export default async function DashboardPage({
               <p className="mt-2 text-lg font-semibold">
                 {summary.lastActivityDate ? formatDate(summary.lastActivityDate) : "-"}
               </p>
+            </article>
+          </section>
+
+          <section>
+            <article className="rounded-2xl border border-black/10 bg-white/80 p-4">
+              <p className="text-xs uppercase tracking-[0.08em] text-black/45">Gesamte Distanz nach Sportart</p>
+              <ul className="mt-3 divide-y divide-black/10 text-sm text-black/80">
+                <li className="flex items-center justify-between py-2">
+                  <span>Rad</span>
+                  <span className="font-medium tabular-nums">
+                    {formatDistance(summary.distanceByPrimarySport.rideMeters)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between py-2">
+                  <span>Laufen</span>
+                  <span className="font-medium tabular-nums">
+                    {formatDistance(summary.distanceByPrimarySport.runMeters)}
+                  </span>
+                </li>
+                <li className="flex items-center justify-between py-2">
+                  <span>Schwimmen</span>
+                  <span className="font-medium tabular-nums">
+                    {formatDistance(summary.distanceByPrimarySport.swimMeters)}
+                  </span>
+                </li>
+              </ul>
             </article>
           </section>
 
@@ -553,8 +604,18 @@ export default async function DashboardPage({
                   href={`/activities/${activity.id}`}
                 >
                   <span className="truncate pr-3">{activity.name}</span>
-                  <span className="whitespace-nowrap text-black/65">
-                    {activity.provider} · {activity.type} - {formatDistance(activity.distanceMeters)}
+                  <span className="flex items-center gap-2 whitespace-nowrap text-black/65">
+                    <span>
+                      {activity.type} ·{" "}
+                      {getActivityMetricLabel(
+                        activity.type,
+                        activity.distanceMeters,
+                        activity.movingTimeSeconds,
+                      )}
+                    </span>
+                    {activity.providers.map((provider) => (
+                      <ProviderBadge key={`${activity.id}-${provider}`} provider={provider} />
+                    ))}
                   </span>
                 </Link>
               ))}
@@ -581,7 +642,19 @@ export default async function DashboardPage({
         </section>
 
         <aside className="space-y-6">
-          <Beat81ImportPanel />
+          <section className="rounded-2xl border border-black/10 bg-white/80 p-5">
+            <p className="text-xs uppercase tracking-[0.08em] text-black/45">Manual Import</p>
+            <h2 className="mt-1 text-lg font-semibold tracking-tight">Beat81 Import verschoben</h2>
+            <p className="mt-2 text-sm text-black/70">
+              Der manuelle Beat81-Import liegt jetzt in den Einstellungen als separater Bereich.
+            </p>
+            <Link
+              className="mt-3 inline-flex items-center rounded-full border border-[color:var(--border)] px-4 py-2 text-sm font-medium text-black/72 transition hover:bg-black/5"
+              href="/settings#beat81-import"
+            >
+              Zu den Einstellungen
+            </Link>
+          </section>
           <ExportPanel
             autoStart={shouldFocusExport && stravaConnection.connected}
             hasLocalActivities={summary.totalActivities > 0}

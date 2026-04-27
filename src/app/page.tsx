@@ -1,5 +1,7 @@
 import Link from "next/link";
 
+const appFlavor = process.env.NEXT_PUBLIC_APP_ENV === "prod" ? "PROD" : "DEV";
+
 const features = [
   {
     title: "Supabase Account Login",
@@ -26,7 +28,7 @@ export default function HomePage() {
     <main className="mx-auto flex min-h-screen max-w-6xl flex-col px-6 py-10 md:px-10">
       <section className="rounded-[2rem] border border-[color:var(--border)] bg-[color:var(--surface)] p-8 shadow-[0_18px_80px_rgba(29,27,22,0.08)] backdrop-blur md:p-12">
         <p className="text-sm uppercase tracking-[0.24em] text-black/55">
-          Local MVP
+          {appFlavor} Flavor
         </p>
         <div className="mt-6 grid gap-10 lg:grid-cols-[1.4fr_1fr]">
           <div>

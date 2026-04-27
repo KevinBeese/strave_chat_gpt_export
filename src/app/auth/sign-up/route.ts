@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { ensureAppUserExists } from "@/lib/auth";
+import { prisma } from "@/lib/prisma";
 import { createSupabaseServerClient } from "@/lib/supabase/server";
 
 function getSafeNextPath(value: FormDataEntryValue | null) {
@@ -16,9 +17,12 @@ export async function POST(request: Request) {
   const email = typeof formData.get("email") === "string" ? String(formData.get("email")).trim() : "";
   const password =
     typeof formData.get("password") === "string" ? String(formData.get("password")) : "";
+  const displayNameEntry = formData.get("displayName");
+  const displayName =
+    typeof displayNameEntry === "string" ? displayNameEntry.trim().slice(0, 80) : "";
   const nextPath = getSafeNextPath(formData.get("next"));
 
-  if (!email || !password) {
+  if (!email || !password || !displayName) {
     return NextResponse.redirect(
       new URL(`/auth?error=missing_credentials&next=${encodeURIComponent(nextPath)}`, request.url),
       { status: 303 },
@@ -46,6 +50,12 @@ export async function POST(request: Request) {
 
   if (data.user) {
     await ensureAppUserExists(data.user.id, data.user.email);
+    await prisma.profile.update({
+      where: { id: data.user.id },
+      data: {
+        displayName,
+      },
+    });
   }
 
   if (!data.session) {

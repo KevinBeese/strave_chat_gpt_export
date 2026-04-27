@@ -21,69 +21,76 @@ MVP, um Strava-Aktivitaeten pro Supabase-Account zu laden und in ein ChatGPT-tau
 - Ausgabe als JSON
 - Ausgabe als ChatGPT-Ready Text
 
-## Setup
+## Umgebungen (nur Dev + Prod)
 
-1. Abhaengigkeiten installieren:
+- `dev`: eigene URL, eigene Supabase-Instanz, eigene PostgreSQL-DB
+- `prod`: eigene URL, eigene Supabase-Instanz, eigene PostgreSQL-DB
+- `stage`: bewusst nicht vorgesehen
+
+Die Flavor-Steuerung laeuft ueber:
+- `APP_ENV=dev|prod` (serverseitig)
+- `NEXT_PUBLIC_APP_ENV=dev|prod` (clientseitig, UI/Browser-Titel)
+
+## Lokales Setup (ohne Deploy)
+
+1. Dependencies installieren:
 
 ```bash
 npm install
 ```
 
-2. Umgebungsvariablen anlegen:
+2. Lokale Dev/Prod-Env-Dateien anlegen:
 
 ```bash
-cp .env.example .env.local
+cp .env.development.local.example .env.development.local
+cp .env.production.local.example .env.production.local
 ```
 
-3. Supabase Auth konfigurieren:
-- In Supabase unter **Authentication > Providers > Email** aktivieren
-- Optional: E-Mail-Bestaetigung je nach Wunsch aktivieren/deaktivieren
-- In `.env.local` setzen:
-  - `NEXT_PUBLIC_SUPABASE_URL`
-  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-
-4. In Strava eine Application anlegen und diese Werte eintragen:
-- `STRAVA_CLIENT_ID`
-- `STRAVA_CLIENT_SECRET`
-- `STRAVA_REDIRECT_URI`
-- Optional fuer Rollen-/Admin-Code-Flow:
-  - `SUPERADMIN_BOOTSTRAP_CODE` (einmaliger Bootstrap fuer ersten Superadmin)
-  - `ADMIN_CODE_HASH_PEPPER` (optional, extra Hash-Pepper fuer Invite-Codes)
-- Optional fuer robustere API-Aufrufe:
-  - `STRAVA_RETRY_MAX_ATTEMPTS` (Default `4`)
-  - `STRAVA_RETRY_BASE_DELAY_MS` (Default `500`)
-  - `STRAVA_REQUEST_TIMEOUT_MS` (Default `15000`)
-- `DATABASE_URL` auf eine PostgreSQL-Instanz setzen (lokal z. B. `postgresql://postgres:postgres@localhost:5432/strava_export?schema=public`)
-- Als Authorization Callback Domain in Strava fuer den lokalen Test: `localhost`
-- Als Callback URL in Strava: `http://localhost:3000/api/strava/callback`
-
-Optional: Wahoo Cloud API anbinden:
-- `WAHOO_CLIENT_ID`
-- `WAHOO_CLIENT_SECRET`
-- `WAHOO_REDIRECT_URI` (lokal z. B. `http://localhost:3000/api/auth/wahoo/callback`)
-- `WAHOO_OAUTH_SCOPES` (optional, Default: `user_read workouts_read`)
-- Optional fuer robustere API-Aufrufe:
-  - `WAHOO_RETRY_MAX_ATTEMPTS` (Default `3`)
-  - `WAHOO_RETRY_BASE_DELAY_MS` (Default `500`)
-  - `WAHOO_REQUEST_TIMEOUT_MS` (Default `15000`)
-- Optional fuer Monitoring:
-  - `SENTRY_DSN` (Sentry-Projekt-DSN)
-  - `SENTRY_TRACES_SAMPLE_RATE` (0-1, Default `0`)
-- OAuth-Startpunkt: `http://localhost:3000/api/wahoo/connect`
-
-5. Prisma Client generieren:
+3. Lokale Datenbanken starten (zwei getrennte Postgres-Container):
 
 ```bash
-npm run prisma:setup
+npm run db:up
 ```
 
-6. Dev-Server starten:
+4. Prisma-Schema fuer beide Umgebungen initialisieren:
 
 ```bash
-npm run dev
+npm run prisma:setup:dev
+npm run prisma:setup:prod
 ```
 
-Danach ist die App unter `http://localhost:3000` erreichbar. Login erfolgt ueber `/auth`, danach kannst du auf `/dashboard` Strava verbinden.
+5. Lokal im Dev-Flavor starten (Hot Reload):
+
+```bash
+npm run dev:local
+```
+
+Danach ist die App unter `http://localhost:3000` erreichbar.
+
+6. Produktionsnah lokal testen (Build + Start, kein Hot Reload):
+
+```bash
+npm run preview:prod:local
+```
+
+Danach laeuft die lokale Prod-Vorschau standardmaessig auf Port `3001`
+(konfigurierbar in `.env.production.local` ueber `PORT`).
+
+## Supabase + OAuth pro Umgebung
+
+### Dev
+- eigene Supabase-Instanz/Projekt (empfohlen)
+- eigene Domain, z. B. `https://dev.<deine-domain>`
+- Strava Callback: `https://dev.<deine-domain>/api/strava/callback`
+- Wahoo Callback: `https://dev.<deine-domain>/api/auth/wahoo/callback`
+
+### Prod
+- getrennte Supabase-Instanz/Projekt
+- Live-Domain
+- Strava Callback: `https://<deine-domain>/api/strava/callback`
+- Wahoo Callback: `https://<deine-domain>/api/auth/wahoo/callback`
+
+Wichtig: Dev und Prod nicht gegen dieselbe Datenbank oder dieselben OAuth-Redirects laufen lassen.
 
 ## Go-Live (Docker + PostgreSQL)
 
@@ -107,6 +114,8 @@ docker run --rm -p 3000:3000 \
 
 ### 2. Wichtige Produktions-ENV Variablen
 
+- `APP_ENV=prod`
+- `NEXT_PUBLIC_APP_ENV=prod`
 - `APP_URL`: z. B. `https://strava-export.deinedomain.de`
 - `DATABASE_URL`: PostgreSQL Connection String, z. B. `postgresql://USER:PASSWORD@HOST:5432/DBNAME?sslmode=require`
 - `SESSION_SECRET`: langes zufaelliges Secret (mind. 12 Zeichen)
@@ -158,6 +167,8 @@ Supabase wird hier fuer zwei Dinge genutzt: Auth (Login) und optional PostgreSQL
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 4. Optional unter **Project Settings > Database** den Postgres-Connection-String kopieren.
 5. Setze in Vercel unter **Settings > Environment Variables**:
+   - `APP_ENV=prod`
+   - `NEXT_PUBLIC_APP_ENV=prod`
    - `NEXT_PUBLIC_SUPABASE_URL=<deine-supabase-url>`
    - `NEXT_PUBLIC_SUPABASE_ANON_KEY=<dein-anon-key>`
    - `DATABASE_URL=<dein-supabase-postgres-string>`
@@ -176,15 +187,13 @@ Hinweis: Wenn `P2021` oder `db_schema_missing` erscheint, wurde Schritt 6 noch n
 
 ## Lokaler Auth + OAuth-Test
 
-1. `cp .env.example .env.local`
-2. Trage deine echte Strava `Client ID` und dein `Client Secret` ein
-3. Lasse `APP_URL` auf `http://localhost:3000`
-4. Lasse `STRAVA_REDIRECT_URI` auf `http://localhost:3000/api/strava/callback`
-5. Starte `npm run prisma:setup`
-6. Starte `npm run dev`
-7. Oeffne `http://localhost:3000/auth` und lege einen User an oder logge dich ein
-8. Oeffne `http://localhost:3000/dashboard`
-9. Klicke auf `Mit Strava verbinden`
+1. `cp .env.development.local.example .env.development.local`
+2. Trage echte Strava-/Supabase-Dev-Werte ein
+3. `npm run db:up`
+4. `npm run prisma:setup:dev`
+5. `npm run dev:local`
+6. Oeffne `http://localhost:3000/auth`, dann `/dashboard`
+7. Klicke auf `Mit Strava verbinden`
 
 ## Naechste Schritte
 

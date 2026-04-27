@@ -1,0 +1,40 @@
+services:
+  postgres-dev:
+    image: postgres:16-alpine
+    container_name: strava-export-postgres-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strava_export_dev
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d strava_export_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_dev_data:/var/lib/postgresql/data
+
+  postgres-prod:
+    image: postgres:16-alpine
+    container_name: strava-export-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: strava_export_prod
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d strava_export_prod"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_dev_data:
+  postgres_prod_data:

@@ -31,6 +31,11 @@ export type DashboardSummary = {
     count: number;
     percentage: number;
   }>;
+  distanceByPrimarySport: {
+    rideMeters: number;
+    runMeters: number;
+    swimMeters: number;
+  };
   recentActivities: Array<{
     id: number;
     provider: string;
@@ -70,6 +75,24 @@ function summarizeWindow(
       0,
     ),
   };
+}
+
+function getPrimarySportType(type: string) {
+  const normalizedType = type.toLowerCase();
+
+  if (normalizedType.includes("ride") || normalizedType.includes("cycling")) {
+    return "ride" as const;
+  }
+
+  if (normalizedType.includes("run") || normalizedType.includes("walk")) {
+    return "run" as const;
+  }
+
+  if (normalizedType.includes("swim")) {
+    return "swim" as const;
+  }
+
+  return null;
 }
 
 export async function getDashboardSummary(userId: string): Promise<DashboardSummary> {
@@ -116,6 +139,28 @@ export async function getDashboardSummary(userId: string): Promise<DashboardSumm
     }))
     .sort((a, b) => b.count - a.count);
 
+  const distanceByPrimarySport = deduped.reduce(
+    (totals, activity) => {
+      const primarySportType = getPrimarySportType(activity.type);
+      const distanceMeters = toFiniteNumber(activity.distanceMeters);
+
+      if (primarySportType === "ride") {
+        totals.rideMeters += distanceMeters;
+      } else if (primarySportType === "run") {
+        totals.runMeters += distanceMeters;
+      } else if (primarySportType === "swim") {
+        totals.swimMeters += distanceMeters;
+      }
+
+      return totals;
+    },
+    {
+      rideMeters: 0,
+      runMeters: 0,
+      swimMeters: 0,
+    },
+  );
+
   return {
     totalActivities,
     totalDistanceMeters,
@@ -124,6 +169,7 @@ export async function getDashboardSummary(userId: string): Promise<DashboardSumm
     last7Days: summarizeWindow(deduped, since7Days),
     last30Days: summarizeWindow(deduped, since30Days),
     sportBreakdown,
+    distanceByPrimarySport,
     recentActivities: deduped.slice(0, 10).map((activity) => ({
       id: Number(activity.id),
       provider: activity.mergedProviderLabel,
